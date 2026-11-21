@@ -98,6 +98,23 @@ def test_ollama_warmup_requires_model_fully_on_gpu(monkeypatch):
         scanner.warmup()
 
 
+def test_ollama_unload_requires_model_to_leave_gpu(monkeypatch):
+    scanner = OllamaSceneScanner(vlm_config())
+    monkeypatch.setattr(scanner, "_post", lambda path, payload: {})
+    monkeypatch.setattr(scanner, "_get", lambda path: {"models": []})
+    scanner.unload()
+
+    monkeypatch.setattr(
+        scanner,
+        "_get",
+        lambda path: {
+            "models": [{"name": "qwen3-vl:4b-instruct", "size_vram": 4_000}]
+        },
+    )
+    with pytest.raises(SceneScanError, match="did not unload"):
+        scanner.unload()
+
+
 def test_api_provider_requires_explicit_enable(monkeypatch):
     monkeypatch.setenv("TEST_VLM_KEY", "secret")
     with pytest.raises(SceneScanError, match="not explicitly enabled"):

@@ -23,6 +23,8 @@ class SceneScanner(Protocol):
 
     def warmup(self) -> None: ...
 
+    def unload(self) -> None: ...
+
     def scan(self, jpeg: bytes) -> SceneScan: ...
 
 
@@ -70,6 +72,23 @@ class OllamaSceneScanner:
         size_vram = int(model.get("size_vram", 0))
         if size <= 0 or size_vram < int(size * 0.95):
             raise SceneScanError("local VLM is not fully resident in GPU memory")
+
+    def unload(self) -> None:
+        self._post(
+            "/api/generate",
+            {
+                "model": self._config.local_model,
+                "prompt": "",
+                "stream": False,
+                "keep_alive": 0,
+            },
+        )
+        loaded = self._get("/api/ps").get("models", [])
+        if any(
+            self._config.local_model in {item.get("name"), item.get("model")}
+            for item in loaded
+        ):
+            raise SceneScanError("Ollama did not unload the local VLM")
 
     def scan(self, jpeg: bytes) -> SceneScan:
         image_b64 = base64.b64encode(jpeg).decode("ascii")
@@ -174,6 +193,9 @@ class OpenAICompatibleSceneScanner:
         return True
 
     def warmup(self) -> None:
+        return None
+
+    def unload(self) -> None:
         return None
 
     def scan(self, jpeg: bytes) -> SceneScan:

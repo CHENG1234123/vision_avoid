@@ -2,7 +2,14 @@ import cv2
 import numpy as np
 
 from vision_avoid.geometry import OccupancyGrid
-from vision_avoid.perception import Detection, depth_colormap, render_debug
+from vision_avoid.perception import (
+    Detection,
+    depth_colormap,
+    render_bev_view,
+    render_camera_view,
+    render_debug,
+    render_depth_view,
+)
 
 
 def test_debug_dashboard_has_fixed_layout():
@@ -35,3 +42,13 @@ def test_depth_colormap_is_warm_near_and_cool_far():
     far_bgr = colored[0, 1]
     assert near_bgr[2] > near_bgr[0]
     assert far_bgr[0] > far_bgr[2]
+
+
+def test_independent_debug_views_have_expected_sizes():
+    frame = np.full((480, 640, 3), 90, dtype=np.uint8)
+    depth = np.linspace(0.5, 5.0, 480 * 640, dtype=np.float32).reshape(480, 640)
+    grid = OccupancyGrid(np.zeros((20, 40), dtype=np.uint8), 0.1, -1.0)
+    detections = (Detection("box", 0.9, (100, 120, 300, 360)),)
+    assert render_camera_view(frame, detections).shape == (360, 640, 3)
+    assert render_depth_view(depth).shape == (270, 480, 3)
+    assert render_bev_view(grid).shape == (270, 480, 3)

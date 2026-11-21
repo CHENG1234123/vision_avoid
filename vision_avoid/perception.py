@@ -32,6 +32,119 @@ def depth_colormap(depth_m: np.ndarray, width: int, height: int) -> np.ndarray:
     return cv2.resize(colored, (width, height), interpolation=cv2.INTER_NEAREST)
 
 
+def _draw_detections(
+    frame: np.ndarray,
+    detections: tuple[Detection, ...],
+    source_width: int,
+    source_height: int,
+    render_width: int,
+    render_height: int,
+    offset_x: int = 0,
+    offset_y: int = 0,
+) -> None:
+    scale_x = render_width / source_width
+    scale_y = render_height / source_height
+    for detection in detections:
+        x1, y1, x2, y2 = detection.box
+        x1 = int(x1 * scale_x) + offset_x
+        x2 = int(x2 * scale_x) + offset_x
+        y1 = int(y1 * scale_y) + offset_y
+        y2 = int(y2 * scale_y) + offset_y
+        color = (45, 220, 95)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        text = f"{detection.label}  {detection.confidence:.2f}"
+        (text_w, text_h), _ = cv2.getTextSize(
+            text, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1
+        )
+        label_top = max(0, y1 - text_h - 8)
+        cv2.rectangle(
+            frame,
+            (x1, label_top),
+            (x1 + text_w + 8, label_top + text_h + 7),
+            (18, 92, 42),
+            -1,
+        )
+        cv2.putText(
+            frame,
+            text,
+            (x1 + 4, label_top + text_h + 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.48,
+            (245, 255, 245),
+            1,
+            cv2.LINE_AA,
+        )
+
+
+def render_camera_view(
+    frame_bgr: np.ndarray,
+    detections: tuple[Detection, ...],
+) -> np.ndarray:
+    width, height = 640, 360
+    source_height, source_width = frame_bgr.shape[:2]
+    scale = min(width / source_width, height / source_height)
+    render_width = max(1, round(source_width * scale))
+    render_height = max(1, round(source_height * scale))
+    resized = cv2.resize(
+        frame_bgr,
+        (render_width, render_height),
+        interpolation=cv2.INTER_AREA,
+    )
+    frame = np.full((height, width, 3), (226, 230, 236), dtype=np.uint8)
+    offset_x = (width - render_width) // 2
+    offset_y = (height - render_height) // 2
+    frame[offset_y : offset_y + render_height, offset_x : offset_x + render_width] = (
+        resized
+    )
+    _draw_detections(
+        frame,
+        detections,
+        source_width,
+        source_height,
+        render_width,
+        render_height,
+        offset_x,
+        offset_y,
+    )
+    return frame
+
+
+def render_depth_view(depth_m: np.ndarray) -> np.ndarray:
+    return depth_colormap(depth_m, 480, 270)
+
+
+def render_bev_view(occupancy: OccupancyGrid) -> np.ndarray:
+    view = np.full((270, 480, 3), (246, 248, 250), dtype=np.uint8)
+    cells = cv2.rotate(occupancy.cells * 255, cv2.ROTATE_90_CLOCKWISE)
+    cells = cv2.resize(cells, (450, 240), interpolation=cv2.INTER_NEAREST)
+    occupied = cells > 0
+    view[15:255, 15:465][occupied] = (45, 45, 220)
+    for distance_m in (1, 2, 3):
+        y = 255 - int(distance_m * 60)
+        cv2.line(view, (15, y), (465, y), (205, 210, 218), 1)
+        cv2.putText(
+            view,
+            f"{distance_m}m",
+            (467, min(266, y + 4)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.28,
+            (95, 105, 120),
+            1,
+            cv2.LINE_AA,
+        )
+    robot_x = 240
+    cv2.rectangle(view, (robot_x - 11, 244), (robot_x + 11, 255), (210, 105, 20), -1)
+    cv2.arrowedLine(
+        view,
+        (robot_x, 244),
+        (robot_x, 218),
+        (210, 105, 20),
+        2,
+        tipLength=0.35,
+    )
+    return view
+
+
 class LocalPerception:
     """Loads the two real-time models from a local model directory."""
 
@@ -45,7 +158,8 @@ class LocalPerception:
             )
         except ImportError as exc:
             raise RuntimeError(
-                "PyTorch/Transformers are missing; install requirements-cu128.txt"
+                "PyTorch/Transformers are unavailable "
+                f"({type(exc).__name__}: {exc}); install requirements-cu128.txt"
             ) from exc
 
         self._torch = torch
@@ -162,36 +276,14 @@ def render_debug(
 ) -> np.ndarray:
     canvas = np.full((540, 960, 3), (28, 31, 36), dtype=np.uint8)
     frame = cv2.resize(frame_bgr, (640, 480), interpolation=cv2.INTER_AREA)
-    for detection in detections:
-        x1, y1, x2, y2 = detection.box
-        scale_x = 640.0 / frame_bgr.shape[1]
-        scale_y = 480.0 / frame_bgr.shape[0]
-        x1, x2 = int(x1 * scale_x), int(x2 * scale_x)
-        y1, y2 = int(y1 * scale_y), int(y2 * scale_y)
-        color = (45, 220, 95)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        text = f"{detection.label}  {detection.confidence:.2f}"
-        (text_w, text_h), _ = cv2.getTextSize(
-            text, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1
-        )
-        label_top = max(0, y1 - text_h - 8)
-        cv2.rectangle(
-            frame,
-            (x1, label_top),
-            (x1 + text_w + 8, label_top + text_h + 7),
-            (18, 92, 42),
-            -1,
-        )
-        cv2.putText(
-            frame,
-            text,
-            (x1 + 4, label_top + text_h + 2),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.48,
-            (245, 255, 245),
-            1,
-            cv2.LINE_AA,
-        )
+    _draw_detections(
+        frame,
+        detections,
+        frame_bgr.shape[1],
+        frame_bgr.shape[0],
+        frame.shape[1],
+        frame.shape[0],
+    )
 
     canvas[0:480, 0:640] = frame
     cv2.rectangle(canvas, (0, 480), (959, 539), (18, 21, 26), -1)

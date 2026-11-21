@@ -117,9 +117,31 @@ ros2 launch vision_avoid live.launch.py video_device:=/dev/video2
 bash scripts/view_debug.sh
 ```
 
-也可以直接打开 `http://127.0.0.1:8080/`。网页使用 MJPEG，不需要 ROS GUI
-插件或 Conda Python 兼容层。若需让同一局域网内的手机查看，可用
-`web_host:=0.0.0.0` 启动，但页面没有身份认证，只应在可信局域网使用。
+也可以直接打开 `http://127.0.0.1:8080/`。原生 HTML 仪表盘分别显示摄像头检测、
+米制深度和障碍俯视图，桌面为左右分栏，手机宽度下自动切换为单列。三路 MJPEG
+仅在浏览器打开对应画面时编码：摄像头目标 15 FPS，深度和障碍俯视图各 6 FPS。
+深度和俯视图输出为 480×270，JPEG 质量为 70。滚出浏览器视口或切到后台标签页
+时暂停对应视频流，重新进入视口后自动恢复。网页不需要 ROS GUI 插件或 Conda
+Python 兼容层。
+
+若需让同一局域网内的手机查看，可用 `web_host:=0.0.0.0` 启动，但 Provider
+切换控件会自动锁定为只读，且页面没有身份认证，只应在可信局域网使用。
+
+调试接口：
+
+| 接口 | 用途 |
+|---|---|
+| `/vision/camera_debug` | 摄像头与检测框 |
+| `/vision/depth_debug` | 近红远蓝的深度图 |
+| `/vision/bev_debug` | 浅色障碍俯视图 |
+| `/vision/debug_status` | JSON 调试状态 |
+| `/vision/debug_image` | 旧版综合调试图 |
+| `/stream/camera.mjpg` | 摄像头 MJPEG |
+| `/stream/depth.mjpg` | 深度 MJPEG |
+| `/stream/bev.mjpg` | 障碍俯视图 MJPEG |
+| `/stream.mjpg` | 旧版综合调试图 MJPEG |
+| `/api/status` | 浏览器状态与会话流统计 |
+| `/api/provider` | 本机 Provider 切换 |
 
 ## 安全门禁
 
@@ -136,10 +158,15 @@ bash scripts/view_debug.sh
 | `/camera/image_raw` | `sensor_msgs/msg/Image` |
 | `/cmd_vel` | `geometry_msgs/msg/Twist` |
 | `/vision/debug_image` | `sensor_msgs/msg/Image` |
+| `/vision/camera_debug` | `sensor_msgs/msg/Image` |
+| `/vision/depth_debug` | `sensor_msgs/msg/Image` |
+| `/vision/bev_debug` | `sensor_msgs/msg/Image` |
+| `/vision/debug_status` | `std_msgs/msg/String`（JSON） |
 | `/vision/rescan_scene` | `std_srvs/srv/Trigger` |
 | `/vision/rescan_local_vlm` | `std_srvs/srv/Trigger` |
 | `/vision/scan_gate_open` | `std_msgs/msg/Bool` |
 | `/vision/provider_status` | `diagnostic_msgs/msg/DiagnosticStatus` |
+| `/vision/set_api_provider` | `std_srvs/srv/SetBool` |
 
 手动重扫：
 
@@ -153,12 +180,12 @@ ros2 service call /vision/rescan_scene std_srvs/srv/Trigger "{}"
 ## 可选远端 API
 
 默认配置为 `provider=local`、`api_enabled=false`，不会发起 HTTP 请求。
-远端 provider 不会在本地失败时自动启用。
+远端 provider 不会在本地失败时自动启用。要允许网页中的“云端 API”按钮，
+启动前预配置 API 但保持默认 provider 为本地：
 
 示例配置阿里云 OpenAI-compatible 视觉接口：
 
 ```bash
-export VLM_PROVIDER=api
 export VLM_API_ENABLED=true
 export VLM_API_BASE_URL='https://<workspace>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
 export VLM_API_MODEL='qwen3-vl-flash'
@@ -167,9 +194,25 @@ export DASHSCOPE_API_KEY='<runtime secret>'
 ros2 launch vision_avoid sim.launch.py
 ```
 
-API 密钥只从环境变量读取，不写入配置文件。若服务不支持 JSON Schema，
-可把 `VLM_STRUCTURED_OUTPUT_MODE` 改为 `json_object`；输出仍会经过严格
-校验，失败不会打开门禁。请求不自动重试，并限制为每小时 20 次。
+启动后点击页面顶部“云端 API”，确认上传提示。切换状态先显示为“待切换”，
+当前扫描继续完成；下一次新环境或手动扫描才使用 API。没有扫描进行时立即卸载
+本地 Qwen 以释放显存，有扫描时等该扫描结束后卸载。切回“本地 Qwen”同样在
+下一次扫描生效，并重新加载、检查 Qwen 的 GPU 常驻状态。
+
+也可通过 ROS 服务切换：
+
+```bash
+ros2 service call /vision/set_api_provider std_srvs/srv/SetBool "{data: true}"
+ros2 service call /vision/set_api_provider std_srvs/srv/SetBool "{data: false}"
+```
+
+`data: true` 请求 API，`data: false` 请求本地。API 未配置、认证失败、超时或
+返回无效结果时保持停车并进入 `FAULT`，不会自动回退到本地。
+
+API 密钥只从环境变量读取，不写入配置文件、源码或网页。URL、模型名和密钥
+均不能从浏览器修改。若服务不支持 JSON Schema，可把
+`VLM_STRUCTURED_OUTPUT_MODE` 改为 `json_object`；输出仍会经过严格校验，
+失败不会打开门禁。请求不自动重试，并限制为每小时 20 次。
 远端地址必须是 HTTPS（本机代理可用 HTTP）；启用前应确认服务商的图片保留和
 隐私政策。
 
@@ -215,6 +258,8 @@ colcon test --packages-select vision_avoid
 4. Qwen 返回安全结果且本地无障碍后，车辆继续。
 5. 死路和摄像头断开时 `/cmd_vel` 为零。
 6. 中央障碍场景连续运行 5 次不碰撞。
+7. 本地扫描进行中切到 API 不中断当前扫描，结束后 Qwen 卸载。
+8. 切回本地后下一次扫描重新加载 Qwen，API 失败时车辆保持停车。
 
 ## 已知限制
 

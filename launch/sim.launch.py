@@ -1,3 +1,5 @@
+import sys
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -41,6 +43,7 @@ def launch_setup(context, *args, **kwargs):
         Node(
             package="gazebo_ros",
             executable="spawn_entity.py",
+            prefix=f"{sys.executable} ",
             arguments=[
                 "-topic",
                 "robot_description",
