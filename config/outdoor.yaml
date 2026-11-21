@@ -1,0 +1,60 @@
+profile: outdoor
+
+models:
+  root: "~/.local/share/vision_avoid/models"
+  detection: dfine-small-coco
+  depth: depth-anything-v2-metric-outdoor-small-hf
+
+camera:
+  width: 640
+  height: 480
+  fx: 554.256
+  fy: 554.256
+  cx: 320.0
+  cy: 240.0
+  mount_height_m: 0.32
+  pitch_deg: 8.0
+
+robot:
+  half_width_m: 0.18
+  safety_margin_m: 0.10
+  max_linear_mps: 0.25
+  caution_linear_mps: 0.15
+  max_angular_rps: 1.0
+  stop_distance_m: 0.35
+  ground_tolerance_m: 0.08
+  obstacle_max_height_m: 1.20
+
+planner:
+  grid_length_m: 4.0
+  grid_width_m: 2.0
+  resolution_m: 0.10
+  lookahead_m: 1.8
+  time_step_s: 0.10
+  turn_duration_s: 1.0
+  yaw_rates: [0.0, 0.45, -0.45, 0.90, -0.90]
+  hysteresis_s: 0.50
+
+scene_change:
+  sample_period_s: 0.50
+  hamming_threshold: 18
+  hold_seconds: 2.0
+  cooldown_seconds: 45.0
+  min_brightness: 10.0
+  min_contrast: 3.0
+  min_sharpness: 0.5
+
+vlm:
+  provider: local
+  local_model: qwen3-vl:4b-instruct
+  local_url: http://127.0.0.1:11434
+  local_timeout_s: 20.0
+  scan_prior_s: 2.0
+  api_enabled: false
+  api_model: qwen3-vl-flash
+  api_base_url: ""
+  api_key_env: DASHSCOPE_API_KEY
+  api_timeout_s: 15.0
+  structured_output_mode: json_schema
+  max_calls_per_hour: 20
+  confidence_threshold: 0.60

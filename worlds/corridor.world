@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="corridor">
+    <include><uri>model://sun</uri></include>
+    <include><uri>model://ground_plane</uri></include>
+    <model name="wall_a"><static>true</static><pose>2.5 0.9 0.4 0 0 0</pose>
+      <link name="link"><collision name="c"><geometry><box><size>5 0.1 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>5 0.1 0.8</size></box></geometry></visual></link></model>
+    <model name="wall_b"><static>true</static><pose>2.5 -0.9 0.4 0 0 0</pose>
+      <link name="link"><collision name="c"><geometry><box><size>5 0.1 0.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>5 0.1 0.8</size></box></geometry></visual></link></model>
+    <model name="box_a"><static>true</static><pose>1.5 0 0.30 0 0 0</pose>
+      <link name="link"><collision name="c"><geometry><box><size>0.45 0.55 0.60</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.45 0.55 0.60</size></box></geometry>
+          <material><ambient>0.1 0.7 0.2 1</ambient><diffuse>0.1 0.7 0.2 1</diffuse></material></visual></link></model>
+    <model name="box_b"><static>true</static><pose>3.2 -0.30 0.22 0 0 0</pose>
+      <link name="link"><collision name="c"><geometry><box><size>0.35 0.35 0.44</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.35 0.35 0.44</size></box></geometry>
+          <material><ambient>0.1 0.45 0.9 1</ambient><diffuse>0.1 0.45 0.9 1</diffuse></material></visual></link></model>
+  </world>
+</sdf>

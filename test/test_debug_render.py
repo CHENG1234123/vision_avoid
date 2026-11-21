@@ -1,0 +1,37 @@
+import cv2
+import numpy as np
+
+from vision_avoid.geometry import OccupancyGrid
+from vision_avoid.perception import Detection, depth_colormap, render_debug
+
+
+def test_debug_dashboard_has_fixed_layout():
+    frame = np.full((480, 640, 3), 90, dtype=np.uint8)
+    depth = np.linspace(0.5, 5.0, 480 * 640, dtype=np.float32).reshape(480, 640)
+    grid = OccupancyGrid(np.zeros((20, 40), dtype=np.uint8), 0.1, -1.0)
+    grid.cells[8:12, 20:25] = 1
+    output = render_debug(
+        frame,
+        depth,
+        grid,
+        (Detection("box", 0.9, (100, 120, 300, 360)),),
+        [
+            "state=RUNNING gate=open",
+            "cmd=(0.15,0.00) scan=caution",
+            "device=cuda",
+            "fps=15.0 inference=65ms",
+        ],
+    )
+    assert output.shape == (540, 960, 3)
+    assert output.dtype == np.uint8
+    assert output.mean() > 0
+    assert cv2.imencode(".jpg", output)[0]
+
+
+def test_depth_colormap_is_warm_near_and_cool_far():
+    depth = np.array([[0.5, 5.0]], dtype=np.float32)
+    colored = depth_colormap(depth, 2, 1)
+    near_bgr = colored[0, 0]
+    far_bgr = colored[0, 1]
+    assert near_bgr[2] > near_bgr[0]
+    assert far_bgr[0] > far_bgr[2]

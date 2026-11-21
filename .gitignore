@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+build/
+install/
+log/
+.venv/
+*.egg-info/
+models/
+camera_calibration.yaml

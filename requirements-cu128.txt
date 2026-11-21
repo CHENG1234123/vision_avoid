@@ -1,0 +1,13 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+--extra-index-url https://mirrors.aliyun.com/pytorch-wheels/cu128
+torch==2.7.1+cu128
+transformers==4.57.1
+huggingface_hub>=0.24
+safetensors>=0.4
+numpy>=1.26,<2
+opencv-python>=4.10,<5
+Pillow>=10,<12
+PyYAML>=6
+pydantic>=2.7,<3
+openai>=1.50,<3
+pytest>=8,<9
