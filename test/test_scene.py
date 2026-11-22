@@ -1,7 +1,13 @@
 import pytest
 from pydantic import ValidationError
 
-from vision_avoid.scene import SceneScan, motion_allowed, scene_schema
+from vision_avoid.scene import SCENE_SCANNER_PROMPT, SceneScan, motion_allowed, scene_schema
+
+
+def test_scene_prompt_requires_simplified_chinese_output():
+    assert "简体中文" in SCENE_SCANNER_PROMPT
+    assert "summary" in SCENE_SCANNER_PROMPT
+    assert "hazards" in SCENE_SCANNER_PROMPT
 
 
 def test_scene_scan_allows_safe_result():

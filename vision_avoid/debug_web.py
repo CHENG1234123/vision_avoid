@@ -190,7 +190,7 @@ HTML_PAGE = """<!doctype html>
       <button id="providerApi" type="button">云端 API</button>
     </div>
     <div class="badges">
-      <span id="stateBadge" class="badge" data-state="INIT">INIT</span>
+      <span id="stateBadge" class="badge" data-state="INIT">初始化</span>
       <span id="gateBadge" class="badge">门禁关闭</span>
     </div>
     <div class="spacer"></div>
@@ -208,7 +208,7 @@ HTML_PAGE = """<!doctype html>
     <section class="layout">
       <article class="card">
         <div class="card-head">
-          <span class="card-title">摄像头与目标识别</span>
+          <span class="card-title">摄像头识别</span>
           <span class="card-note" id="cameraNote">等待图像</span>
         </div>
         <img id="camera" class="media camera-view" data-src="/stream/camera.mjpg" alt="摄像头与检测结果">
@@ -247,7 +247,7 @@ HTML_PAGE = """<!doctype html>
         <span id="inference" class="metric-value">--</span><span class="metric-unit">ms</span>
       </div></div>
       <div class="metric">
-        <div class="metric-label">Qwen 结论</div>
+        <div class="metric-label">场景结论</div>
         <div id="scanResult" class="metric-value">--</div>
       </div>
       <div class="metric"><div class="metric-label">扫描耗时</div><div>
@@ -263,7 +263,7 @@ HTML_PAGE = """<!doctype html>
     <div id="alert" class="alert" role="alert"></div>
     <section class="detail-grid">
       <article class="card detail">
-        <div class="card-title">Qwen 场景摘要</div>
+        <div class="card-title">场景摘要</div>
         <p id="scanSummary">尚无扫描结果</p>
       </article>
       <article class="card detail">
@@ -339,6 +339,9 @@ HTML_PAGE = """<!doctype html>
       } else if (!control) {
         note.textContent = "页面不是通过本机回环地址打开，Provider 切换已锁定";
         note.classList.add("show");
+      } else if (status.control_scope === "lan") {
+        note.textContent = "局域网 Provider 切换已开启，仅限可信网络使用";
+        note.classList.add("show");
       } else {
         note.classList.remove("show");
       }
@@ -351,7 +354,14 @@ HTML_PAGE = """<!doctype html>
 
     function update(status) {
       latest = status;
-      $("stateBadge").textContent = status.state || "UNKNOWN";
+      const stateLabels = {
+        INIT:"初始化", SCANNING:"扫描中", READY:"就绪",
+        RUNNING:"行驶中", BLOCKED:"等待放行", FAULT:"故障"
+      };
+      const scanLabels = {
+        clear:"畅通", caution:"谨慎通行", blocked:"不可通行", unknown:"无法判断"
+      };
+      $("stateBadge").textContent = stateLabels[status.state] || "未知";
       $("stateBadge").dataset.state = status.state || "UNKNOWN";
       $("gateBadge").textContent = status.gate_open ? "门禁开启" : "门禁关闭";
       setText("linearSpeed", status.linear_x?.toFixed(2));
@@ -359,7 +369,10 @@ HTML_PAGE = """<!doctype html>
       setText("clearance", status.front_clearance_m?.toFixed(2));
       setText("perceptionFps", status.fps?.toFixed(0));
       setText("inference", status.inference_ms?.toFixed(0));
-      setText("scanResult", status.scan_traversability || "pending");
+      setText(
+        "scanResult",
+        scanLabels[status.scan_traversability] || "等待扫描"
+      );
       setText("scanTime", status.scan_seconds?.toFixed(1));
       setText(
         "tokens",
@@ -396,7 +409,8 @@ HTML_PAGE = """<!doctype html>
       const camera = streams.camera || {};
       const live = camera.frame_age_ms != null && camera.frame_age_ms < 1500;
       $("liveDot").classList.toggle("live", live && state !== "FAULT");
-      $("liveText").textContent = state === "FAULT" ? "FAULT" : live ? "LIVE" : "PAUSED";
+      $("liveText").textContent =
+        state === "FAULT" ? "故障" : live ? "实时" : "暂停";
       const fps = camera.fps == null ? "--" : Math.round(camera.fps);
       $("cameraNote").textContent = `视频 ${fps} FPS`;
       $("frameAge").textContent =
@@ -571,7 +585,10 @@ class DebugRequestHandler(BaseHTTPRequestHandler):
                 status=403,
             )
             return
-        if not self._local_client():
+        if (
+            not self.server.allow_remote_control  # type: ignore
+            and not self._local_client()
+        ):
             self._send_json(
                 {"success": False, "message": "provider control is local only"},
                 status=403,
@@ -678,10 +695,8 @@ class DebugRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(origin)
         if parsed.port != self.server.server_port:  # type: ignore
             return False
-        try:
-            return ip_address(parsed.hostname or "").is_loopback
-        except ValueError:
-            return parsed.hostname == "localhost"
+        request_host = urlparse(f"//{self.headers.get('Host', '')}").hostname
+        return parsed.hostname == request_host
 
     def log_message(self, format: str, *args) -> None:
         del format, args
@@ -697,6 +712,7 @@ class DebugWebNode(Node):
         self.declare_parameter("camera_max_fps", 15)
         self.declare_parameter("depth_max_fps", 6)
         self.declare_parameter("bev_max_fps", 6)
+        self.declare_parameter("allow_lan_provider_switch", False)
         host = str(self.get_parameter("host").value)
         port = int(self.get_parameter("port").value)
         self._quality = int(self.get_parameter("jpeg_quality").value)
@@ -709,7 +725,16 @@ class DebugWebNode(Node):
             "legacy": 1.0
             / max(1, int(self.get_parameter("max_stream_fps").value)),
         }
-        self._control_enabled = self._is_loopback_host(host)
+        allow_lan_control = bool(
+            self.get_parameter("allow_lan_provider_switch").value
+        )
+        if self._is_loopback_host(host):
+            self._control_scope = "local"
+        elif allow_lan_control:
+            self._control_scope = "lan"
+        else:
+            self._control_scope = "disabled"
+        self._control_enabled = self._control_scope != "disabled"
         self._bridge = CvBridge()
         self._streams = {
             name: DebugStreamState()
@@ -735,6 +760,9 @@ class DebugWebNode(Node):
             self._server.streams = self._streams  # type: ignore
             self._server.node = self  # type: ignore
             self._server.control_enabled = self._control_enabled  # type: ignore
+            self._server.allow_remote_control = (  # type: ignore
+                self._control_scope == "lan"
+            )
         except OSError as exc:
             self.get_logger().error(f"cannot start debug web server: {exc}")
         if self._server is not None:
@@ -743,6 +771,10 @@ class DebugWebNode(Node):
             )
             self._server_thread.start()
             self.get_logger().info(f"debug dashboard: http://{host}:{port}")
+            if self._control_scope == "lan":
+                self.get_logger().warning(
+                    "LAN provider switching is enabled; trusted network only"
+                )
 
         jpeg_topics = {
             "/vision/camera_jpeg": "camera",
@@ -851,6 +883,7 @@ class DebugWebNode(Node):
             {
                 "streams": streams,
                 "control_enabled": self._control_enabled,
+                "control_scope": self._control_scope,
             }
         )
         return status

@@ -47,6 +47,7 @@ def test_html_dashboard_and_status_endpoint():
         },
     )()  # type: ignore[attr-defined]
     server.control_enabled = True  # type: ignore[attr-defined]
+    server.allow_remote_control = False  # type: ignore[attr-defined]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -54,6 +55,10 @@ def test_html_dashboard_and_status_endpoint():
         with urllib.request.urlopen(f"{base}/", timeout=2) as response:
             page = response.read().decode()
         assert "小车视觉避障" in page
+        assert "摄像头识别" in page
+        assert "场景摘要" in page
+        assert "场景结论" in page
+        assert "等待扫描" in page
         assert "/stream/camera.mjpg" in page
         assert "/stream/depth.mjpg" in page
         assert "/stream/bev.mjpg" in page
@@ -78,6 +83,22 @@ def test_html_dashboard_and_status_endpoint():
         with urllib.request.urlopen(request, timeout=2) as response:
             result = json.loads(response.read())
         assert result["success"]
+
+        server.allow_remote_control = True  # type: ignore[attr-defined]
+        remote_host = f"192.0.2.10:{server.server_address[1]}"
+        remote_same_origin = urllib.request.Request(
+            f"{base}/api/provider",
+            data=b'{"provider":"local"}',
+            headers={
+                "Content-Type": "application/json",
+                "X-Vision-Control": "1",
+                "Origin": f"http://{remote_host}",
+                "Host": remote_host,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(remote_same_origin, timeout=2) as response:
+            assert json.loads(response.read())["success"]
 
         missing_header = urllib.request.Request(
             f"{base}/api/provider",

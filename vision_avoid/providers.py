@@ -99,8 +99,8 @@ class OllamaSceneScanner:
                 {
                     "role": "user",
                     "content": (
-                        "Inspect the visible floor and obstacles for a small ground robot. "
-                        "Return all required JSON fields."
+                        "请检查画面中的可见地面和障碍物，供小型地面机器人避障使用。"
+                        "返回全部必需字段，并用简体中文填写 summary 和 hazards 中的 label。"
                     ),
                     "images": [image_b64],
                 },
@@ -203,7 +203,7 @@ class OpenAICompatibleSceneScanner:
         schema = scene_schema()
         prompt = (
             f"{SCENE_SCANNER_PROMPT}\n"
-            f"Your response must satisfy this JSON Schema:\n"
+            f"返回内容必须符合以下 JSON Schema：\n"
             f"{json.dumps(schema, separators=(',', ':'))}"
         )
         if self._config.structured_output_mode == "json_schema":

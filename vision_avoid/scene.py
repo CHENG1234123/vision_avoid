@@ -55,22 +55,27 @@ class SceneScan(BaseModel):
 
 
 SCENE_SCANNER_PROMPT = """\
-You inspect one forward-facing ground-robot camera frame before the robot enters an area.
-Look at the visible floor, obstacles and free space.
-Use clear when the center path is visibly open, caution when an obstacle exists but a
-visible side path exists, blocked when no visible route remains, and unknown only when
-the image itself is unusable or the floor cannot be judged.
-If the center is obstructed and floor is visible on either side, use caution and set
-safe_direction to the side with more visible floor. If both sides look similar, choose left.
-Use blocked only when the obstacle spans the route and no floor is visible on either side.
-Do not use blocked just because the center is obstructed. Do not use unknown merely
-because metric distance cannot be measured.
-Report a box, cable, step, drop, puddle, reflective area, narrow passage, person or
-vehicle only when it is visible. Do not estimate metric distance or coordinates.
-If traversability is caution or blocked, include the visible obstacle in hazards.
-Return every field in the JSON schema. confidence is a decimal from 0.0 to 1.0;
-use about 0.7 when the visible evidence is clear enough for cautious movement.
-Never provide motor commands.
+你负责在小车进入一片区域前检查前方摄像头画面，观察可见地面、障碍物和可通行空间。
+
+判断规则：
+- 中央道路明显畅通时使用 clear。
+- 有障碍物但存在可见侧向通路时使用 caution。
+- 没有任何可见通路时使用 blocked。
+- 只有图像本身不可用或无法判断地面时使用 unknown。
+- 中央被挡住但任一侧可见地面时，使用 caution，并把安全方向设为可见地面更多的一侧。
+- 两侧看起来相近时，安全方向选择 left。
+- 只有障碍物横跨道路且两侧都没有可见地面时，才使用 blocked。
+- 不要仅因中央受挡就使用 blocked；不要仅因无法测量米制距离就使用 unknown。
+- 只在确实可见时报告箱子、线缆、台阶、落差、水渍、反光区域、狭窄通道、人或车辆。
+- 不要估计米制距离或坐标。
+- traversability 为 caution 或 blocked 时，必须把可见障碍物写入 hazards。
+- 返回 JSON 架构中的全部字段。confidence 为 0.0 到 1.0 的小数；可见证据足以低速通行时
+  通常使用约 0.7。
+- 绝不输出电机控制指令。
+
+语言要求：summary 以及 hazards 中每个 label 必须使用简体中文，不要返回英文句子或英文
+物体名称。traversability、safe_direction、direction、distance_band 和 severity 等枚举
+字段仍须严格使用 JSON 架构规定的英文值。
 """
 
 

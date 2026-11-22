@@ -5,6 +5,7 @@ from vision_avoid.geometry import OccupancyGrid
 from vision_avoid.perception import (
     Detection,
     depth_colormap,
+    localize_detection_label,
     render_bev_view,
     render_camera_view,
     render_debug,
@@ -52,3 +53,17 @@ def test_independent_debug_views_have_expected_sizes():
     assert render_camera_view(frame, detections).shape == (360, 640, 3)
     assert render_depth_view(depth).shape == (270, 480, 3)
     assert render_bev_view(grid).shape == (270, 480, 3)
+
+
+def test_detection_labels_are_localized_to_chinese():
+    assert localize_detection_label("person") == "人"
+    assert localize_detection_label("traffic_light") == "交通信号灯"
+    assert localize_detection_label("aeroplane") == "飞机"
+    assert localize_detection_label("motorbike") == "摩托车"
+    assert localize_detection_label("diningtable") == "餐桌"
+    assert localize_detection_label("pottedplant") == "盆栽"
+    assert localize_detection_label("sofa") == "沙发"
+    assert localize_detection_label("tvmonitor") == "电视"
+    assert localize_detection_label("box") == "箱子"
+    assert localize_detection_label("未知") == "未知"
+    assert localize_detection_label("not-a-coco-class") == "未知物体"

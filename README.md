@@ -124,8 +124,10 @@ bash scripts/view_debug.sh
 时暂停对应视频流，重新进入视口后自动恢复。网页不需要 ROS GUI 插件或 Conda
 Python 兼容层。
 
-若需让同一局域网内的手机查看，可用 `web_host:=0.0.0.0` 启动，但 Provider
-切换控件会自动锁定为只读，且页面没有身份认证，只应在可信局域网使用。
+若需让同一局域网内的手机查看，可用 `web_host:=0.0.0.0` 启动。默认仍会锁定
+Provider 切换控件；明确需要手机切换本地与云端时，再增加
+`allow_lan_provider_switch:=true`。页面没有身份认证，开启后仅应在可信局域网
+使用，任何能打开页面的设备都可能触发云端 API 请求和费用。
 
 调试接口：
 
@@ -141,7 +143,7 @@ Python 兼容层。
 | `/stream/bev.mjpg` | 障碍俯视图 MJPEG |
 | `/stream.mjpg` | 旧版综合调试图 MJPEG |
 | `/api/status` | 浏览器状态与会话流统计 |
-| `/api/provider` | 本机 Provider 切换 |
+| `/api/provider` | 本机或显式启用的局域网 Provider 切换 |
 
 ## 安全门禁
 
@@ -193,6 +195,16 @@ export VLM_STRUCTURED_OUTPUT_MODE=json_schema
 export DASHSCOPE_API_KEY='<runtime secret>'
 ros2 launch vision_avoid sim.launch.py
 ```
+
+手机网页同时启用 Provider 热切换：
+
+```bash
+ros2 launch vision_avoid live.launch.py \
+  web_host:=0.0.0.0 \
+  allow_lan_provider_switch:=true
+```
+
+API 地址、模型和密钥仍只能来自启动环境变量，网页不能修改凭据。
 
 启动后点击页面顶部“云端 API”，确认上传提示。切换状态先显示为“待切换”，
 当前扫描继续完成；下一次新环境或手动扫描才使用 API。没有扫描进行时立即卸载

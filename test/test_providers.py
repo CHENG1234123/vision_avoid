@@ -43,15 +43,22 @@ VALID_SCAN = {
 
 def test_ollama_provider_validates_structured_response(monkeypatch):
     scanner = OllamaSceneScanner(vlm_config())
+    captured = {}
+
+    def fake_post(path, payload):
+        del path
+        captured.update(payload)
+        return {"message": {"content": json.dumps(VALID_SCAN)}}
+
     monkeypatch.setattr(
         scanner,
         "_post",
-        lambda path, payload: {
-            "message": {"content": json.dumps(VALID_SCAN)}
-        },
+        fake_post,
     )
     result = scanner.scan(b"jpeg")
     assert result.allows_motion(0.6)
+    assert "简体中文" in captured["messages"][0]["content"]
+    assert "简体中文" in captured["messages"][1]["content"]
 
 
 def test_local_provider_rejects_non_loopback_url():
@@ -157,6 +164,7 @@ def test_api_provider_uses_json_schema_without_network(monkeypatch):
     assert result.traversability == "clear"
     assert captured["response_format"]["type"] == "json_schema"
     assert captured["client"]["max_retries"] == 0
+    assert "简体中文" in captured["messages"][0]["content"][0]["text"]
     assert "secret" not in json.dumps(captured["response_format"])
 
 

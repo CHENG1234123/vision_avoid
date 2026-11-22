@@ -1,4 +1,6 @@
+import os
 import sys
+from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
@@ -18,9 +20,17 @@ def launch_setup(context, *args, **kwargs):
     web_host = LaunchConfiguration("web_host").perform(context)
     web_port = LaunchConfiguration("web_port").perform(context)
     drive_enabled = LaunchConfiguration("drive_enabled").perform(context).lower() == "true"
+    allow_lan_provider_switch = (
+        LaunchConfiguration("allow_lan_provider_switch").perform(context).lower()
+        == "true"
+    )
     xacro_file = f"{package_share}/urdf/vision_avoid_car.urdf.xacro"
     world_file = f"{package_share}/worlds/{world_name}.world"
     config_file = f"{package_share}/config/{profile}.yaml"
+    venv_python = Path(os.environ.get("VIRTUAL_ENV", ""), "bin", "python")
+    if not venv_python.is_file():
+        venv_python = Path(package_share).parents[3] / ".venv" / "bin" / "python"
+    python_prefix = f"{venv_python} " if venv_python.is_file() else None
 
     return [
         IncludeLaunchDescription(
@@ -71,12 +81,20 @@ def launch_setup(context, *args, **kwargs):
             ],
             output="screen",
             emulate_tty=True,
+            prefix=python_prefix,
         ),
         Node(
             package="vision_avoid",
             executable="vision_debug_web",
-            parameters=[{"host": web_host, "port": int(web_port)}],
+            parameters=[
+                {
+                    "host": web_host,
+                    "port": int(web_port),
+                    "allow_lan_provider_switch": allow_lan_provider_switch,
+                }
+            ],
             output="screen",
+            prefix=python_prefix,
         ),
     ]
 
@@ -95,6 +113,9 @@ def generate_launch_description():
             DeclareLaunchArgument("web_host", default_value="127.0.0.1"),
             DeclareLaunchArgument("web_port", default_value="8080"),
             DeclareLaunchArgument("drive_enabled", default_value="true"),
+            DeclareLaunchArgument(
+                "allow_lan_provider_switch", default_value="false"
+            ),
             OpaqueFunction(function=launch_setup),
         ]
     )

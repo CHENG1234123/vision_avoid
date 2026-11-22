@@ -1,12 +1,132 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from vision_avoid.config import AppConfig
 from vision_avoid.geometry import OccupancyGrid, build_occupancy, depth_to_body_points
+
+
+COCO_LABELS_ZH = {
+    "person": "人",
+    "bicycle": "自行车",
+    "car": "汽车",
+    "motorcycle": "摩托车",
+    "motorbike": "摩托车",
+    "airplane": "飞机",
+    "aeroplane": "飞机",
+    "bus": "公交车",
+    "train": "火车",
+    "truck": "卡车",
+    "boat": "船",
+    "traffic light": "交通信号灯",
+    "fire hydrant": "消防栓",
+    "stop sign": "停车标志",
+    "parking meter": "停车计时器",
+    "bench": "长椅",
+    "bird": "鸟",
+    "cat": "猫",
+    "dog": "狗",
+    "horse": "马",
+    "sheep": "羊",
+    "cow": "牛",
+    "elephant": "大象",
+    "bear": "熊",
+    "zebra": "斑马",
+    "giraffe": "长颈鹿",
+    "backpack": "背包",
+    "umbrella": "雨伞",
+    "handbag": "手提包",
+    "tie": "领带",
+    "suitcase": "行李箱",
+    "frisbee": "飞盘",
+    "skis": "滑雪板",
+    "snowboard": "单板滑雪板",
+    "sports ball": "球",
+    "kite": "风筝",
+    "baseball bat": "棒球棒",
+    "baseball glove": "棒球手套",
+    "skateboard": "滑板",
+    "surfboard": "冲浪板",
+    "tennis racket": "网球拍",
+    "bottle": "瓶子",
+    "wine glass": "酒杯",
+    "cup": "杯子",
+    "fork": "叉子",
+    "knife": "刀",
+    "spoon": "勺子",
+    "bowl": "碗",
+    "banana": "香蕉",
+    "apple": "苹果",
+    "sandwich": "三明治",
+    "orange": "橙子",
+    "broccoli": "西兰花",
+    "carrot": "胡萝卜",
+    "hot dog": "热狗",
+    "pizza": "披萨",
+    "donut": "甜甜圈",
+    "cake": "蛋糕",
+    "chair": "椅子",
+    "couch": "沙发",
+    "sofa": "沙发",
+    "potted plant": "盆栽",
+    "pottedplant": "盆栽",
+    "bed": "床",
+    "dining table": "餐桌",
+    "diningtable": "餐桌",
+    "toilet": "马桶",
+    "tv": "电视",
+    "tvmonitor": "电视",
+    "laptop": "笔记本电脑",
+    "mouse": "鼠标",
+    "remote": "遥控器",
+    "keyboard": "键盘",
+    "cell phone": "手机",
+    "microwave": "微波炉",
+    "oven": "烤箱",
+    "toaster": "烤面包机",
+    "sink": "水槽",
+    "refrigerator": "冰箱",
+    "book": "书",
+    "clock": "时钟",
+    "vase": "花瓶",
+    "scissors": "剪刀",
+    "teddy bear": "泰迪熊",
+    "hair drier": "吹风机",
+    "toothbrush": "牙刷",
+    "box": "箱子",
+    "cable": "线缆",
+    "cone": "锥桶",
+}
+
+
+def localize_detection_label(label: str) -> str:
+    """Return a Chinese display label while keeping unknown classes generic."""
+    normalized = " ".join(label.strip().lower().replace("_", " ").replace("-", " ").split())
+    translated = COCO_LABELS_ZH.get(normalized)
+    if translated is not None:
+        return translated
+    if any("\u4e00" <= character <= "\u9fff" for character in label):
+        return label.strip()
+    return "未知物体"
+
+
+@lru_cache(maxsize=4)
+def _cjk_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates = (
+        ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 2),
+        ("/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", 0),
+    )
+    for path, index in candidates:
+        try:
+            return ImageFont.truetype(path, size=size, index=index)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 
 @dataclass(frozen=True)
@@ -44,36 +164,55 @@ def _draw_detections(
 ) -> None:
     scale_x = render_width / source_width
     scale_y = render_height / source_height
+    if not detections:
+        return
+    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(image)
+    font = _cjk_font(16)
     for detection in detections:
         x1, y1, x2, y2 = detection.box
         x1 = int(x1 * scale_x) + offset_x
         x2 = int(x2 * scale_x) + offset_x
         y1 = int(y1 * scale_y) + offset_y
         y2 = int(y2 * scale_y) + offset_y
-        color = (45, 220, 95)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        text = f"{detection.label}  {detection.confidence:.2f}"
-        (text_w, text_h), _ = cv2.getTextSize(
-            text, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1
+        label = localize_detection_label(detection.label)
+        text = f"{label}  {detection.confidence:.2f}"
+        text_left, text_top, text_right, text_bottom = draw.textbbox(
+            (0, 0), text, font=font
         )
-        label_top = max(0, y1 - text_h - 8)
-        cv2.rectangle(
-            frame,
-            (x1, label_top),
-            (x1 + text_w + 8, label_top + text_h + 7),
-            (18, 92, 42),
-            -1,
+        text_width = text_right - text_left
+        text_height = text_bottom - text_top
+        label_top = max(0, y1 - text_height - 10)
+        draw.rectangle(
+            (x1, label_top, x1 + text_width + 10, label_top + text_height + 9),
+            fill=(18, 92, 42),
         )
-        cv2.putText(
-            frame,
+        draw.rectangle((x1, y1, x2, y2), outline=(45, 220, 95), width=2)
+        draw.text(
+            (x1 + 5, label_top + 4),
             text,
-            (x1 + 4, label_top + text_h + 2),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.48,
-            (245, 255, 245),
-            1,
-            cv2.LINE_AA,
+            font=font,
+            fill=(245, 255, 245),
         )
+    frame[:] = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+
+
+def _draw_cjk_text(
+    frame: np.ndarray,
+    position: tuple[int, int],
+    text: str,
+    size: int,
+    color: tuple[int, int, int],
+) -> None:
+    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(image)
+    draw.text(
+        position,
+        text,
+        font=_cjk_font(size),
+        fill=(color[2], color[1], color[0]),
+    )
+    frame[:] = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
 
 def render_camera_view(
@@ -249,7 +388,7 @@ class LocalPerception:
             box_values = box.detach().cpu().numpy().astype(int)
             detections.append(
                 Detection(
-                    label=id2label[int(label_id)],
+                    label=localize_detection_label(id2label[int(label_id)]),
                     confidence=float(score),
                     box=tuple(int(v) for v in box_values),
                 )
@@ -295,8 +434,19 @@ def render_debug(
         if "state=" in state_text
         else "UNKNOWN"
     )
-    gate_text = "OPEN" if "gate=open" in state_text else "CLOSED"
+    gate_text = "开启" if "gate=open" in state_text else "关闭"
+    state_names_zh = {
+        "INIT": "初始化",
+        "RUNNING": "行驶中",
+        "READY": "就绪",
+        "SCANNING": "扫描中",
+        "BLOCKED": "等待放行",
+        "FAULT": "故障",
+        "UNKNOWN": "未知",
+    }
+    state_display = state_names_zh.get(state_name, "未知")
     state_colors = {
+        "INIT": (180, 185, 195),
         "RUNNING": (55, 205, 105),
         "READY": (55, 205, 105),
         "SCANNING": (40, 200, 240),
@@ -305,25 +455,22 @@ def render_debug(
     }
     state_color = state_colors.get(state_name, (180, 185, 195))
 
-    cv2.putText(
+    _draw_cjk_text(
         canvas,
-        f"VISION AVOID  |  {state_name}  |  GATE {gate_text}",
-        (14, 514),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.62,
+        (14, 487),
+        f"视觉避障  |  {state_display}  |  门禁{gate_text}",
+        18,
         state_color,
-        2,
-        cv2.LINE_AA,
     )
-    cv2.putText(
+    _draw_cjk_text(
         canvas,
-        f"detections={len(detections)}  depth={depth_m.min():.1f}-{depth_m.max():.1f}m",
-        (14, 532),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.42,
+        (14, 514),
+        (
+            f"识别目标 {len(detections)} 个  "
+            f"深度 {depth_m.min():.1f}-{depth_m.max():.1f} 米"
+        ),
+        11,
         (190, 195, 205),
-        1,
-        cv2.LINE_AA,
     )
 
     sidebar_x, sidebar_w = 650, 300
@@ -351,8 +498,8 @@ def render_debug(
     )
 
     panel_titles = [
-        ("DEPTH  NEAR=RED / FAR=BLUE", 20),
-        ("OBSTACLES  FORWARD=UP", 193),
+        ("单目深度  近红 / 远蓝", 20),
+        ("障碍俯视  前方向上", 193),
     ]
     for title, y in panel_titles:
         cv2.rectangle(
@@ -362,42 +509,33 @@ def render_debug(
             (32, 36, 44),
             -1,
         )
-        cv2.putText(
+        _draw_cjk_text(
             canvas,
-            title,
             (sidebar_x + 8, y + 15),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.43,
+            title,
+            12,
             (225, 228, 235),
-            1,
-            cv2.LINE_AA,
         )
 
     cv2.rectangle(canvas, (sidebar_x, 364), (949, 529), (22, 25, 31), -1)
-    cv2.putText(
+    _draw_cjk_text(
         canvas,
-        "STATUS",
         (sidebar_x + 8, 383),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.48,
+        "状态",
+        14,
         state_color,
-        1,
-        cv2.LINE_AA,
     )
 
     detail_lines = lines[1:9]
     for index, line in enumerate(detail_lines):
         y = 404 + index * 15
         display = line if len(line) <= 43 else line[:40] + "..."
-        cv2.putText(
+        _draw_cjk_text(
             canvas,
-            display,
             (sidebar_x + 8, y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.37,
+            display,
+            10,
             (205, 210, 220),
-            1,
-            cv2.LINE_AA,
         )
 
     cv2.rectangle(canvas, (0, 0), (959, 539), state_color, 3)
