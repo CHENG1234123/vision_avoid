@@ -6,18 +6,20 @@ import pytest
 
 from vision_avoid.config import VlmConfig
 from vision_avoid.providers import (
-    OllamaSceneScanner,
+    LMStudioSceneScanner,
     OpenAICompatibleSceneScanner,
     SceneScanError,
     create_scanner,
 )
 
 
-def vlm_config(*, provider="local", api_enabled=False) -> VlmConfig:
+def vlm_config(
+    *,
+    provider="local",
+    api_enabled=False,
+) -> VlmConfig:
     return VlmConfig(
         provider=provider,
-        local_model="qwen3-vl:4b-instruct",
-        local_url="http://127.0.0.1:11434",
         local_timeout_s=1.0,
         scan_prior_s=2.0,
         api_enabled=api_enabled,
@@ -28,6 +30,8 @@ def vlm_config(*, provider="local", api_enabled=False) -> VlmConfig:
         structured_output_mode="json_schema",
         max_calls_per_hour=20,
         confidence_threshold=0.6,
+        lmstudio_model="local/qwen3-vl-4b-test.gguf",
+        lmstudio_url="http://127.0.0.1:1234/v1",
     )
 
 
@@ -39,87 +43,6 @@ VALID_SCAN = {
     "requires_operator": False,
     "confidence": 0.9,
 }
-
-
-def test_ollama_provider_validates_structured_response(monkeypatch):
-    scanner = OllamaSceneScanner(vlm_config())
-    captured = {}
-
-    def fake_post(path, payload):
-        del path
-        captured.update(payload)
-        return {"message": {"content": json.dumps(VALID_SCAN)}}
-
-    monkeypatch.setattr(
-        scanner,
-        "_post",
-        fake_post,
-    )
-    result = scanner.scan(b"jpeg")
-    assert result.allows_motion(0.6)
-    assert "简体中文" in captured["messages"][0]["content"]
-    assert "简体中文" in captured["messages"][1]["content"]
-
-
-def test_local_provider_rejects_non_loopback_url():
-    config = vlm_config()
-    config = config.__class__(
-        **{**config.__dict__, "local_url": "http://203.0.113.10:11434"}
-    )
-    with pytest.raises(SceneScanError, match="loopback"):
-        OllamaSceneScanner(config)
-
-
-def test_ollama_warmup_requires_model_fully_on_gpu(monkeypatch):
-    scanner = OllamaSceneScanner(vlm_config())
-    monkeypatch.setattr(scanner, "_post", lambda path, payload: {})
-    monkeypatch.setattr(
-        scanner,
-        "_get",
-        lambda path: {
-            "models": [
-                {
-                    "name": "qwen3-vl:4b-instruct",
-                    "size": 4_000,
-                    "size_vram": 4_000,
-                }
-            ]
-        },
-    )
-    scanner.warmup()
-
-    monkeypatch.setattr(
-        scanner,
-        "_get",
-        lambda path: {
-            "models": [
-                {
-                    "name": "qwen3-vl:4b-instruct",
-                    "size": 4_000,
-                    "size_vram": 2_000,
-                }
-            ]
-        },
-    )
-    with pytest.raises(SceneScanError, match="not fully resident"):
-        scanner.warmup()
-
-
-def test_ollama_unload_requires_model_to_leave_gpu(monkeypatch):
-    scanner = OllamaSceneScanner(vlm_config())
-    monkeypatch.setattr(scanner, "_post", lambda path, payload: {})
-    monkeypatch.setattr(scanner, "_get", lambda path: {"models": []})
-    scanner.unload()
-
-    monkeypatch.setattr(
-        scanner,
-        "_get",
-        lambda path: {
-            "models": [{"name": "qwen3-vl:4b-instruct", "size_vram": 4_000}]
-        },
-    )
-    with pytest.raises(SceneScanError, match="did not unload"):
-        scanner.unload()
 
 
 def test_api_provider_requires_explicit_enable(monkeypatch):
@@ -193,13 +116,32 @@ def test_api_provider_json_object_mode_and_failure(monkeypatch):
     assert captured["response_format"] == {"type": "json_object"}
 
 
-def test_local_provider_does_not_import_api_client(monkeypatch):
-    def fail_import(name):
-        if name == "openai":
-            raise AssertionError("local provider imported openai")
-        return original_import(name)
+def test_lmstudio_provider_loads_scans_and_unloads(monkeypatch):
+    config = vlm_config()
+    scanner = LMStudioSceneScanner(config)
+    requests = []
 
-    original_import = __import__
-    monkeypatch.setattr("builtins.__import__", fail_import)
+    def fake_request(method, path, payload=None):
+        requests.append((method, path, payload))
+        if path == "/api/v1/models/load":
+            return {"status": "loaded", "instance_id": "instance-1"}
+        if path == "/api/v1/models/unload":
+            return {"instance_id": "instance-1"}
+        return {"models": []}
+
+    monkeypatch.setattr(scanner, "_request", fake_request)
+    scanner.warmup()
+    assert scanner._instance_id == "instance-1"
+    scanner.unload()
+    assert [path for _, path, _ in requests] == [
+        "/api/v1/models",
+        "/api/v1/models/load",
+        "/api/v1/models",
+        "/api/v1/models/unload",
+        "/api/v1/models",
+    ]
+
+
+def test_lmstudio_is_selected_as_local_provider():
     scanner = create_scanner(vlm_config())
-    assert isinstance(scanner, OllamaSceneScanner)
+    assert isinstance(scanner, LMStudioSceneScanner)

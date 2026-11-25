@@ -1,5 +1,3 @@
-import json
-import os
 from pathlib import Path
 
 import cv2
@@ -9,7 +7,7 @@ import pytest
 from vision_avoid.config import load_config
 from vision_avoid.node import encode_snapshot
 from vision_avoid.perception import LocalPerception
-from vision_avoid.providers import OllamaSceneScanner
+from vision_avoid.providers import LMStudioSceneScanner
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +30,7 @@ def test_snapshot_preserves_camera_aspect_ratio():
     assert image.shape[:2] == (768, 1024)
 
 
-def test_real_local_models_smoke():
+def test_real_perception_models_smoke():
     pytest.importorskip("torch")
     config = load_config(ROOT / "config" / "indoor.yaml")
     if not (config.models_root / config.detection_model).exists():
@@ -47,48 +45,18 @@ def test_real_local_models_smoke():
     assert output.depth_m.min() >= 0.1
 
 
-def test_local_qwen_smoke_when_available():
+def test_lmstudio_scene_scan_when_available():
     config = load_config(ROOT / "config" / "indoor.yaml")
-    scanner = OllamaSceneScanner(config.vlm)
+    scanner = LMStudioSceneScanner(config.vlm)
     if not scanner.health_check():
-        pytest.skip("Ollama is not running")
-    try:
-        models = scanner._get("/api/tags").get("models", [])
-    except Exception:
-        pytest.skip("Ollama model list is unavailable")
-    if not any(config.vlm.local_model in {item.get("name"), item.get("model")} for item in models):
-        pytest.skip("local Qwen model has not been pulled")
-    models_root = Path(
-        os.environ.get("OLLAMA_MODELS", Path.home() / ".ollama" / "models")
-    )
-    manifest_path = (
-        models_root
-        / "manifests"
-        / "registry.ollama.ai"
-        / "library"
-        / "qwen3-vl"
-        / "4b-instruct"
-    )
-    if not manifest_path.exists():
-        pytest.skip("local Qwen manifest is unavailable")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    large_layers = [
-        layer
-        for layer in manifest["layers"]
-        if layer["mediaType"]
-        in {
-            "application/vnd.ollama.image.model",
-            "application/vnd.ollama.image.projector",
-        }
-    ]
-    for layer in large_layers:
-        blob = models_root / "blobs" / layer["digest"].replace(":", "-")
-        if not blob.exists() or blob.stat().st_size != layer["size"]:
-            pytest.skip("local Qwen blobs are still downloading")
+        pytest.skip("LM Studio local server is not running")
 
     ok, jpeg = cv2.imencode(".jpg", synthetic_robot_frame())
     assert ok
-    scanner.warmup()
-    result = scanner.scan(jpeg.tobytes())
-    assert result.summary
-    assert 0.0 <= result.confidence <= 1.0
+    try:
+        scanner.warmup()
+        result = scanner.scan(jpeg.tobytes())
+        assert result.summary
+        assert 0.0 <= result.confidence <= 1.0
+    finally:
+        scanner.unload()

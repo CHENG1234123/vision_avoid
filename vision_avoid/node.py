@@ -761,7 +761,7 @@ class AvoidanceNode(Node):
             self._diagnostic_pair("api_available", str(api_available).lower()),
             self._diagnostic_pair(
                 "model",
-                self.config.vlm.local_model
+                self.config.vlm.lmstudio_model
                 if active_provider == "local"
                 else self.config.vlm.api_model,
             ),

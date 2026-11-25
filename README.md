@@ -6,6 +6,7 @@ D-FINE-S 和 Depth Anything V2 Metric Small 做物体、深度和几何障碍检
 才继续行驶。
 
 远端视觉 API 默认关闭。只有显式切换 provider 和启用 API 时才会上传图片。
+本地场景模型通过 LM Studio 的 OpenAI-compatible 接口加载。
 
 ## 模型与许可
 
@@ -13,9 +14,9 @@ D-FINE-S 和 Depth Anything V2 Metric Small 做物体、深度和几何障碍检
 |---|---|---|
 | 物体识别 | [D-FINE-S COCO](https://huggingface.co/ustc-community/dfine-small-coco) | Apache-2.0 |
 | 米制深度 | [Depth Anything V2 Metric Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf) | Apache-2.0 |
-| 场景补充扫描 | [Qwen3-VL-4B-Instruct Q4_K_M](https://ollama.com/library/qwen3-vl:4b-instruct) | Apache-2.0 |
+| 场景补充扫描 | [Qwen3-VL-4B-Instruct Q4_K_M](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct) | Apache-2.0 |
 
-下载脚本固定 Hugging Face revision。Qwen 模型通过本地 Ollama 常驻运行。
+下载脚本固定 Hugging Face revision。Qwen 模型默认由本地 LM Studio 加载。
 
 ## 环境要求
 
@@ -23,7 +24,7 @@ D-FINE-S 和 Depth Anything V2 Metric Small 做物体、深度和几何障碍检
 - Python 3.10（不要使用系统默认的 Python 3.14）
 - NVIDIA 驱动和 CUDA 12.8 兼容的 PyTorch 2.7
 - 建议至少 12 GB 显存、30 GB 内存和 10 GB 空闲磁盘
-- 本地场景扫描需要 Ollama 0.12.7 或更新版本
+- 本地场景扫描需要 LM Studio，本地服务器监听 `127.0.0.1:1234`
 
 当前验证机器为 RTX 5070 Ti Laptop 12 GB。运行时只允许一个 Qwen 实例，
 上下文固定为 4096 Token。
@@ -56,30 +57,33 @@ source install/setup.bash
 
 当前工作区还已经创建了 `.venv`，也可以直接运行 `source .venv/bin/activate`。
 
-安装 Ollama。官方脚本需要 sudo，执行前应自行审查：
+在 LM Studio 中加载 `Qwen3-VL-4B-Instruct-Q4_K_M`，然后从
+**Developer → Local Server** 启动服务，端口保持 `1234`。确认接口可用：
 
 ```bash
-bash scripts/install_ollama.sh
+curl -fsS http://127.0.0.1:1234/v1/models
 ```
 
-下载 D-FINE、两种 Depth Anything 权重和 Qwen：
+下载 D-FINE 和两种 Depth Anything 权重：
 
 ```bash
 ros2 run vision_avoid vision-download-models
 ```
 
-如果系统服务没有自动启动，在另一个终端运行 `ollama serve`。
-
-如果只需先验证本地实时模型，可跳过 Qwen：
-
-```bash
-ros2 run vision_avoid vision-download-models --skip-ollama
-```
+LM Studio 模型在 LM Studio 中单独下载。
 
 模型默认保存在 `~/.local/share/vision_avoid/models`。若使用其他目录，设置
 `VISION_MODELS_DIR=/absolute/path` 并给下载脚本传 `--models-dir`。
 
 ## 运行
+
+默认本地后端是 LM Studio。先确认 LM Studio Local Server 已启动并加载
+Qwen3-VL-4B，然后设置模型标识：
+
+```bash
+export VLM_LMSTUDIO_MODEL='qwen3-vl-4b-instruct-vision'
+export VLM_LMSTUDIO_URL='http://127.0.0.1:1234/v1'
+```
 
 仿真默认启动室内 profile 和中央障碍场景：
 
@@ -98,7 +102,7 @@ ros2 launch vision_avoid sim.launch.py world:=transition profile:=indoor
 ros2 launch vision_avoid sim.launch.py world:=avoidance profile:=outdoor
 ```
 
-USB 摄像头默认只观察，不发布 `/cmd_vel`。当前 LRCP 摄像头使用稳定的
+USB 摄像头默认只观察，不发布 `/cmd_vel`。当前 Sonix HD webcam 使用稳定的
 `/dev/v4l/by-id/...-video-index0` 路径：
 
 ```bash
@@ -208,8 +212,9 @@ API 地址、模型和密钥仍只能来自启动环境变量，网页不能修�
 
 启动后点击页面顶部“云端 API”，确认上传提示。切换状态先显示为“待切换”，
 当前扫描继续完成；下一次新环境或手动扫描才使用 API。没有扫描进行时立即卸载
-本地 Qwen 以释放显存，有扫描时等该扫描结束后卸载。切回“本地 Qwen”同样在
-下一次扫描生效，并重新加载、检查 Qwen 的 GPU 常驻状态。
+本地 Qwen 以释放显存，有扫描时等该扫描结束后卸载。LM Studio 后端通过
+`/api/v1/models/unload` 卸载实例；切回“本地 Qwen”同样在下一次扫描生效，
+并通过 LM Studio 重新加载模型。
 
 也可通过 ROS 服务切换：
 

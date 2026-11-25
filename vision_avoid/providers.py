@@ -3,8 +3,10 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from typing import Protocol
 from urllib.parse import urlparse
 
@@ -28,139 +30,10 @@ class SceneScanner(Protocol):
     def scan(self, jpeg: bytes) -> SceneScan: ...
 
 
-class OllamaSceneScanner:
-    name = "ollama"
-
-    def __init__(self, config: VlmConfig):
-        self._config = config
-        self._url = config.local_url.rstrip("/")
-        host = urlparse(self._url).hostname
-        if host not in {"127.0.0.1", "localhost", "::1"}:
-            raise SceneScanError("local Ollama URL must use a loopback host")
-        self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        self.last_usage: dict[str, int] = {}
-
-    def health_check(self) -> bool:
-        try:
-            with self._opener.open(f"{self._url}/api/tags", timeout=3) as response:
-                return response.status == 200
-        except (urllib.error.URLError, TimeoutError, OSError):
-            return False
-
-    def warmup(self) -> None:
-        payload = {
-            "model": self._config.local_model,
-            "prompt": "Reply with OK.",
-            "stream": False,
-            "keep_alive": -1,
-            "options": {"num_ctx": 4096, "num_predict": 4},
-        }
-        self._post("/api/generate", payload)
-        loaded = self._get("/api/ps").get("models", [])
-        model = next(
-            (
-                item
-                for item in loaded
-                if self._config.local_model
-                in {item.get("name"), item.get("model")}
-            ),
-            None,
-        )
-        if model is None:
-            raise SceneScanError("Ollama did not keep the local VLM loaded")
-        size = int(model.get("size", 0))
-        size_vram = int(model.get("size_vram", 0))
-        if size <= 0 or size_vram < int(size * 0.95):
-            raise SceneScanError("local VLM is not fully resident in GPU memory")
-
-    def unload(self) -> None:
-        self._post(
-            "/api/generate",
-            {
-                "model": self._config.local_model,
-                "prompt": "",
-                "stream": False,
-                "keep_alive": 0,
-            },
-        )
-        loaded = self._get("/api/ps").get("models", [])
-        if any(
-            self._config.local_model in {item.get("name"), item.get("model")}
-            for item in loaded
-        ):
-            raise SceneScanError("Ollama did not unload the local VLM")
-
-    def scan(self, jpeg: bytes) -> SceneScan:
-        image_b64 = base64.b64encode(jpeg).decode("ascii")
-        payload = {
-            "model": self._config.local_model,
-            "messages": [
-                {"role": "system", "content": SCENE_SCANNER_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        "请检查画面中的可见地面和障碍物，供小型地面机器人避障使用。"
-                        "返回全部必需字段，并用简体中文填写 summary 和 hazards 中的 label。"
-                    ),
-                    "images": [image_b64],
-                },
-            ],
-            "format": scene_schema(),
-            "stream": False,
-            "keep_alive": -1,
-            "options": {
-                "temperature": 0,
-                "num_ctx": 4096,
-                "num_predict": 256,
-            },
-        }
-        response = self._post("/api/chat", payload)
-        self.last_usage = {
-            "input_tokens": int(response.get("prompt_eval_count", 0)),
-            "output_tokens": int(response.get("eval_count", 0)),
-        }
-        try:
-            content = response["message"]["content"]
-            return SceneScan.model_validate_json(content)
-        except (KeyError, TypeError, ValueError) as exc:
-            raise SceneScanError("Ollama returned an invalid scene scan") from exc
-
-    def _post(self, path: str, payload: dict) -> dict:
-        body = json.dumps(payload).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self._url}{path}",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with self._opener.open(
-                request, timeout=self._config.local_timeout_s
-            ) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-            raise SceneScanError(f"Ollama request failed: {type(exc).__name__}") from exc
-        if not isinstance(data, dict):
-            raise SceneScanError("Ollama returned a non-object response")
-        return data
-
-    def _get(self, path: str) -> dict:
-        try:
-            with self._opener.open(
-                f"{self._url}{path}", timeout=self._config.local_timeout_s
-            ) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-            raise SceneScanError(f"Ollama request failed: {type(exc).__name__}") from exc
-        if not isinstance(data, dict):
-            raise SceneScanError("Ollama returned a non-object response")
-        return data
-
-
 class OpenAICompatibleSceneScanner:
     name = "openai_compatible"
 
-    def __init__(self, config: VlmConfig):
+    def __init__(self, config: VlmConfig, api_key: str | None = None):
         if not config.api_enabled:
             raise SceneScanError("API provider is not explicitly enabled")
         if not config.api_base_url:
@@ -172,7 +45,7 @@ class OpenAICompatibleSceneScanner:
         }:
             raise SceneScanError("remote API base URL must use HTTPS")
         self._config = config
-        self._api_key = os.environ.get(config.api_key_env, "")
+        self._api_key = api_key or os.environ.get(config.api_key_env, "")
         if not self._api_key:
             raise SceneScanError(
                 f"required API key environment variable is not set: {config.api_key_env}"
@@ -250,9 +123,130 @@ class OpenAICompatibleSceneScanner:
             raise SceneScanError(f"API scene scan failed: {type(exc).__name__}") from exc
 
 
+class LMStudioSceneScanner:
+    name = "lmstudio"
+
+    def __init__(self, config: VlmConfig):
+        parsed = urlparse(config.lmstudio_url)
+        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            raise SceneScanError("LM Studio URL must use a loopback host")
+        if not parsed.path.rstrip("/").endswith("/v1"):
+            raise SceneScanError("LM Studio URL must end with /v1")
+        self._config = config
+        self._root_url = config.lmstudio_url.rstrip("/")[:-3]
+        self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        self._instance_id: str | None = None
+        delegate_config = replace(
+            config,
+            provider="api",
+            api_enabled=True,
+            api_model=config.lmstudio_model,
+            api_base_url=config.lmstudio_url,
+            api_timeout_s=config.local_timeout_s,
+        )
+        self._delegate = OpenAICompatibleSceneScanner(
+            delegate_config, api_key="lm-studio"
+        )
+        self.last_usage: dict[str, int] = {}
+
+    def health_check(self) -> bool:
+        try:
+            return isinstance(self._get_models(), dict)
+        except SceneScanError:
+            return False
+
+    def warmup(self) -> None:
+        loaded_ids = self._loaded_instance_ids()
+        if loaded_ids:
+            self._instance_id = loaded_ids[0]
+            return
+        try:
+            loaded = self._request(
+                "POST",
+                "/api/v1/models/load",
+                {
+                    "model": self._config.lmstudio_model,
+                    "context_length": 4096,
+                    "echo_load_config": True,
+                },
+            )
+        except SceneScanError as exc:
+            raise SceneScanError(
+                f"LM Studio could not load {self._config.lmstudio_model}: {exc}"
+            ) from exc
+        self._instance_id = str(loaded.get("instance_id", ""))
+        if loaded.get("status") != "loaded" or not self._instance_id:
+            raise SceneScanError("LM Studio did not confirm the local VLM is loaded")
+
+    def unload(self) -> None:
+        instance_ids = set(self._loaded_instance_ids())
+        if self._instance_id:
+            instance_ids.add(self._instance_id)
+        for instance_id in instance_ids:
+            self._request(
+                "POST",
+                "/api/v1/models/unload",
+                {"instance_id": instance_id},
+            )
+        self._instance_id = None
+        for _ in range(30):
+            if not self._loaded_instance_ids():
+                return
+            time.sleep(0.1)
+        raise SceneScanError("LM Studio did not unload the local VLM")
+
+    def scan(self, jpeg: bytes) -> SceneScan:
+        result = self._delegate.scan(jpeg)
+        self.last_usage = dict(self._delegate.last_usage)
+        return result
+
+    def _loaded_instance_ids(self) -> list[str]:
+        loaded: list[str] = []
+        for model in self._get_models().get("models", []):
+            if model.get("key") != self._config.lmstudio_model:
+                continue
+            loaded.extend(
+                str(item.get("id"))
+                for item in model.get("loaded_instances", [])
+                if item.get("id")
+            )
+        return loaded
+
+    def _get_models(self) -> dict:
+        return self._request("GET", "/api/v1/models")
+
+    def _request(
+        self, method: str, path: str, payload: dict | None = None
+    ) -> dict:
+        body = None if payload is None else json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self._root_url}{path}",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method=method,
+        )
+        try:
+            with self._opener.open(
+                request, timeout=self._config.local_timeout_s
+            ) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise SceneScanError(
+                f"LM Studio request failed: {type(exc).__name__}"
+            ) from exc
+        if not isinstance(data, dict):
+            raise SceneScanError("LM Studio returned a non-object response")
+        return data
+
+
 def create_scanner(config: VlmConfig) -> SceneScanner:
     if config.provider == "local":
-        return OllamaSceneScanner(config)
+        return LMStudioSceneScanner(config)
     if config.provider == "api":
         return OpenAICompatibleSceneScanner(config)
     raise SceneScanError(f"unknown VLM provider: {config.provider}")

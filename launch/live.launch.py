@@ -82,7 +82,7 @@ def generate_launch_description():
                 "video_device",
                 default_value=(
                     "/dev/v4l/by-id/"
-                    "usb-LRCP_USB2.0_LRCP_USB2.0_SN0001-video-index0"
+                    "usb-Sonix_Technology_Co.__Ltd._HD_webcam_SN0001-video-index0"
                 ),
             ),
             DeclareLaunchArgument("web_host", default_value="127.0.0.1"),

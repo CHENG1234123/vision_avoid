@@ -58,8 +58,6 @@ class SceneChangeConfig:
 @dataclass(frozen=True)
 class VlmConfig:
     provider: str
-    local_model: str
-    local_url: str
     local_timeout_s: float
     scan_prior_s: float
     api_enabled: bool
@@ -70,6 +68,8 @@ class VlmConfig:
     structured_output_mode: str
     max_calls_per_hour: int
     confidence_threshold: float
+    lmstudio_model: str = "qwen3-vl-4b-instruct-vision"
+    lmstudio_url: str = "http://127.0.0.1:1234/v1"
 
 
 @dataclass(frozen=True)
@@ -127,7 +127,12 @@ def load_config(path: str | Path) -> AppConfig:
     vlm = replace(
         config.vlm,
         provider=os.environ.get("VLM_PROVIDER", config.vlm.provider),
-        local_model=os.environ.get("VLM_MODEL", config.vlm.local_model),
+        lmstudio_model=os.environ.get(
+            "VLM_LMSTUDIO_MODEL", config.vlm.lmstudio_model
+        ),
+        lmstudio_url=os.environ.get(
+            "VLM_LMSTUDIO_URL", config.vlm.lmstudio_url
+        ),
         api_enabled=_env_bool("VLM_API_ENABLED", config.vlm.api_enabled),
         api_model=os.environ.get("VLM_API_MODEL", config.vlm.api_model),
         api_base_url=os.environ.get("VLM_API_BASE_URL", config.vlm.api_base_url),

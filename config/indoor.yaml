@@ -46,8 +46,8 @@ scene_change:
 
 vlm:
   provider: local
-  local_model: qwen3-vl:4b-instruct
-  local_url: http://127.0.0.1:11434
+  lmstudio_model: qwen3-vl-4b-instruct-vision
+  lmstudio_url: http://127.0.0.1:1234/v1
   local_timeout_s: 20.0
   scan_prior_s: 2.0
   api_enabled: false

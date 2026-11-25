@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from vision_avoid.calibrate_camera import calibrate, detect_views
-from vision_avoid.download_models import HF_MODELS, QWEN_DIGEST_PREFIX
+from vision_avoid.download_models import HF_MODELS
 
 
 def test_calibration_rejects_unusable_views():
@@ -16,7 +16,6 @@ def test_model_revisions_are_pinned():
     for repo_id, revision in HF_MODELS.values():
         assert repo_id
         assert len(revision) == 40
-    assert len(QWEN_DIGEST_PREFIX) == 12
 
 
 def test_detect_views_requires_an_image():
