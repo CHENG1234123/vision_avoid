@@ -35,3 +35,19 @@ def test_dark_frame_is_quality_rejected():
     detector = SceneChangeDetector(CONFIG)
     dark = np.zeros((240, 320, 3), dtype=np.uint8)
     assert detector.update(dark, 0.0).event == SceneEvent.QUALITY_REJECTED
+
+
+def test_dark_frame_is_rejected_between_samples():
+    config = SceneChangeConfig(
+        sample_period_s=1.0,
+        hamming_threshold=CONFIG.hamming_threshold,
+        hold_seconds=CONFIG.hold_seconds,
+        cooldown_seconds=CONFIG.cooldown_seconds,
+        min_brightness=CONFIG.min_brightness,
+        min_contrast=CONFIG.min_contrast,
+        min_sharpness=CONFIG.min_sharpness,
+    )
+    detector = SceneChangeDetector(config)
+    dark = np.zeros((240, 320, 3), dtype=np.uint8)
+    assert detector.update(dark, 0.0).event == SceneEvent.QUALITY_REJECTED
+    assert detector.update(dark, 0.1).event == SceneEvent.QUALITY_REJECTED

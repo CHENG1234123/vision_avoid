@@ -33,7 +33,12 @@ class SceneScanner(Protocol):
 class OpenAICompatibleSceneScanner:
     name = "openai_compatible"
 
-    def __init__(self, config: VlmConfig, api_key: str | None = None):
+    def __init__(
+        self,
+        config: VlmConfig,
+        api_key: str | None = None,
+        extra_body: dict[str, object] | None = None,
+    ):
         if not config.api_enabled:
             raise SceneScanError("API provider is not explicitly enabled")
         if not config.api_base_url:
@@ -45,6 +50,7 @@ class OpenAICompatibleSceneScanner:
         }:
             raise SceneScanError("remote API base URL must use HTTPS")
         self._config = config
+        self._extra_body = dict(extra_body or {})
         self._api_key = api_key or os.environ.get(config.api_key_env, "")
         if not self._api_key:
             raise SceneScanError(
@@ -91,6 +97,9 @@ class OpenAICompatibleSceneScanner:
         else:
             response_format = {"type": "json_object"}
 
+        request_kwargs: dict[str, object] = {}
+        if self._extra_body:
+            request_kwargs["extra_body"] = self._extra_body
         try:
             response = self._client.chat.completions.create(
                 model=self._config.api_model,
@@ -111,6 +120,7 @@ class OpenAICompatibleSceneScanner:
                 response_format=response_format,
                 temperature=0,
                 max_tokens=256,
+                **request_kwargs,
             )
             usage = getattr(response, "usage", None)
             self.last_usage = {
@@ -248,5 +258,8 @@ def create_scanner(config: VlmConfig) -> SceneScanner:
     if config.provider == "local":
         return LMStudioSceneScanner(config)
     if config.provider == "api":
-        return OpenAICompatibleSceneScanner(config)
+        return OpenAICompatibleSceneScanner(
+            config,
+            extra_body={"enable_thinking": config.api_enable_thinking},
+        )
     raise SceneScanError(f"unknown VLM provider: {config.provider}")

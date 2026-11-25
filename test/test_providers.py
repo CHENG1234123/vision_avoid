@@ -91,6 +91,29 @@ def test_api_provider_uses_json_schema_without_network(monkeypatch):
     assert "secret" not in json.dumps(captured["response_format"])
 
 
+def test_api_provider_disables_thinking_by_default(monkeypatch):
+    monkeypatch.setenv("TEST_VLM_KEY", "secret")
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            message = types.SimpleNamespace(content=json.dumps(VALID_SCAN))
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=message)]
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            del kwargs
+            self.chat = types.SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeOpenAI))
+    scanner = create_scanner(vlm_config(provider="api", api_enabled=True))
+    scanner.scan(b"jpeg")
+    assert captured["extra_body"] == {"enable_thinking": False}
+
+
 def test_api_provider_json_object_mode_and_failure(monkeypatch):
     monkeypatch.setenv("TEST_VLM_KEY", "secret")
     captured = {}

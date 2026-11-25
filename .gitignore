@@ -9,3 +9,6 @@ log/
 *.egg-info/
 models/
 camera_calibration.yaml
+.env
+.env.*
+config/api.env

@@ -28,6 +28,14 @@ def test_environment_enables_api_explicitly(monkeypatch):
     assert config.vlm.api_enabled
 
 
+def test_api_timeout_and_thinking_can_be_overridden(monkeypatch):
+    monkeypatch.setenv("VLM_API_TIMEOUT_S", "42.5")
+    monkeypatch.setenv("VLM_API_ENABLE_THINKING", "true")
+    config = load_config(ROOT / "config" / "indoor.yaml")
+    assert config.vlm.api_timeout_s == 42.5
+    assert config.vlm.api_enable_thinking is True
+
+
 def test_models_directory_can_be_overridden(monkeypatch, tmp_path):
     monkeypatch.setenv("VISION_MODELS_DIR", str(tmp_path))
     config = load_config(ROOT / "config" / "indoor.yaml")

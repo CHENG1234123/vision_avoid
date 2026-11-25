@@ -70,6 +70,7 @@ class VlmConfig:
     confidence_threshold: float
     lmstudio_model: str = "qwen3-vl-4b-instruct-vision"
     lmstudio_url: str = "http://127.0.0.1:1234/v1"
+    api_enable_thinking: bool = False
 
 
 @dataclass(frozen=True)
@@ -137,8 +138,12 @@ def load_config(path: str | Path) -> AppConfig:
         api_model=os.environ.get("VLM_API_MODEL", config.vlm.api_model),
         api_base_url=os.environ.get("VLM_API_BASE_URL", config.vlm.api_base_url),
         api_key_env=os.environ.get("VLM_API_KEY_ENV", config.vlm.api_key_env),
+        api_timeout_s=_env_float("VLM_API_TIMEOUT_S", config.vlm.api_timeout_s),
         structured_output_mode=os.environ.get(
             "VLM_STRUCTURED_OUTPUT_MODE", config.vlm.structured_output_mode
+        ),
+        api_enable_thinking=_env_bool(
+            "VLM_API_ENABLE_THINKING", config.vlm.api_enable_thinking
         ),
     )
     config = replace(config, vlm=vlm)
@@ -151,6 +156,16 @@ def _env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number") from exc
 
 
 def _validate(config: AppConfig) -> None:

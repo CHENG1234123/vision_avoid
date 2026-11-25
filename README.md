@@ -200,6 +200,40 @@ export DASHSCOPE_API_KEY='<runtime secret>'
 ros2 launch vision_avoid sim.launch.py
 ```
 
+也可以把非密钥配置放在仓库外的
+`~/.config/vision_avoid/api.env`，密钥单独放在权限为 `600` 的文件中，再由
+`VLM_API_KEY_FILE` 引用。配置模板见 `config/api.env.example`：
+
+```bash
+VLM_PROVIDER=api
+VLM_API_ENABLED=true
+VLM_API_BASE_URL=https://<api-host>/compatible-mode/v1
+VLM_API_MODEL=<vision-model>
+VLM_API_TIMEOUT_S=30
+VLM_STRUCTURED_OUTPUT_MODE=json_schema
+VLM_API_ENABLE_THINKING=false
+VLM_API_KEY_ENV=DASHSCOPE_API_KEY
+VLM_API_KEY_FILE=/absolute/path/to/api.key
+```
+
+`chmod 600 ~/.config/vision_avoid/api.env`。启动前可先用一张场景图验证鉴权、
+模型和结构化输出：
+
+```bash
+bash scripts/check_api.sh /path/to/scene.jpg
+```
+
+验证通过后，用同一份配置启动实车观察模式：
+
+```bash
+bash scripts/run_api.sh profile:=indoor drive_enabled:=false
+```
+
+百炼 Token Plan 的 `sk-sp-` 密钥只能配合 Token Plan Base URL；它面向交互式
+工具。若机器人要作为后端服务长期调用，应改用按量付费的 `sk-` 密钥和对应的
+百炼 Base URL。`VLM_API_ENABLE_THINKING=false` 可避免 Qwen 场景扫描因思考过程
+变慢；若所用服务不支持该参数，需要移除该项。
+
 手机网页同时启用 Provider 热切换：
 
 ```bash

@@ -55,17 +55,22 @@ class SceneChangeDetector:
         contrast = float(gray.std())
         sharpness = float(cv2.Laplacian(gray, cv2.CV_32F).var())
 
-        if not force_sample and now_s - self._sampled_at < self._config.sample_period_s:
-            return self._observation(
-                SceneEvent.UNCHANGED, brightness, contrast, sharpness
-            )
-        self._sampled_at = now_s
-
-        if (
+        quality_rejected = (
             brightness < self._config.min_brightness
             or contrast < self._config.min_contrast
             or sharpness < self._config.min_sharpness
-        ):
+        )
+        if not force_sample and now_s - self._sampled_at < self._config.sample_period_s:
+            # Do not let an unsampled but still invalid frame clear a camera fault.
+            event = (
+                SceneEvent.QUALITY_REJECTED
+                if quality_rejected
+                else SceneEvent.UNCHANGED
+            )
+            return self._observation(event, brightness, contrast, sharpness)
+        self._sampled_at = now_s
+
+        if quality_rejected:
             self._changed_since = None
             return self._observation(
                 SceneEvent.QUALITY_REJECTED, brightness, contrast, sharpness
