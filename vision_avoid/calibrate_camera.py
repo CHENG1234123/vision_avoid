@@ -44,8 +44,14 @@ def load_folder(folder: Path) -> list[np.ndarray]:
     return [image for image in images if image is not None]
 
 
-def capture_images(device: int) -> list[np.ndarray]:
-    capture = cv2.VideoCapture(device)
+def capture_images(
+    device: int, width: int = 640, height: int = 480
+) -> list[np.ndarray]:
+    capture = cv2.VideoCapture(device, cv2.CAP_V4L2)
+    capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    capture.set(cv2.CAP_PROP_FPS, 30)
     if not capture.isOpened():
         raise RuntimeError(f"could not open camera /dev/video{device}")
     images: list[np.ndarray] = []
@@ -55,6 +61,11 @@ def capture_images(device: int) -> list[np.ndarray]:
             ok, frame = capture.read()
             if not ok:
                 continue
+            if frame.shape[1] != width or frame.shape[0] != height:
+                print(
+                    f"warning: camera returned {frame.shape[1]}x{frame.shape[0]}, "
+                    f"expected {width}x{height}"
+                )
             cv2.imshow("camera calibration", frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord(" "):
@@ -106,6 +117,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--images", type=Path, help="folder of checkerboard images")
     parser.add_argument("--camera", type=int, default=0)
+    parser.add_argument("--width", type=int, default=640)
+    parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--cols", type=int, default=9, help="internal corner columns")
     parser.add_argument("--rows", type=int, default=6, help="internal corner rows")
     parser.add_argument("--square-size", type=float, default=0.025, help="metres")
@@ -119,7 +132,7 @@ def main() -> None:
     images = (
         load_folder(args.images.expanduser().resolve())
         if args.images
-        else capture_images(args.camera)
+        else capture_images(args.camera, args.width, args.height)
     )
     result = calibrate(images, (args.cols, args.rows), args.square_size)
     args.output.parent.mkdir(parents=True, exist_ok=True)

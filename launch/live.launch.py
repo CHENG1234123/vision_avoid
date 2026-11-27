@@ -15,18 +15,26 @@ def launch_setup(context, *args, **kwargs):
     video_device = LaunchConfiguration("video_device").perform(context)
     web_host = LaunchConfiguration("web_host").perform(context)
     web_port = LaunchConfiguration("web_port").perform(context)
+    camera_rotate_180 = (
+        LaunchConfiguration("camera_rotate_180").perform(context).lower() == "true"
+    )
     drive_enabled = LaunchConfiguration("drive_enabled").perform(context).lower() == "true"
     allow_lan_provider_switch = (
         LaunchConfiguration("allow_lan_provider_switch").perform(context).lower()
         == "true"
     )
     config_file = f"{package_share}/config/{profile}.yaml"
+    vehicle_file = LaunchConfiguration("vehicle_file").perform(context)
+    serial_device = LaunchConfiguration("serial_device").perform(context)
+    segment_m = LaunchConfiguration("segment_m").perform(context)
+    if drive_enabled and (not vehicle_file or not serial_device):
+        raise ValueError("drive_enabled requires vehicle_file and serial_device")
     venv_python = Path(os.environ.get("VIRTUAL_ENV", ""), "bin", "python")
     if not venv_python.is_file():
         venv_python = Path(package_share).parents[3] / ".venv" / "bin" / "python"
     python_prefix = f"{venv_python} " if venv_python.is_file() else None
 
-    return [
+    nodes = [
         Node(
             package="vision_avoid",
             executable="vision_camera_node",
@@ -37,6 +45,7 @@ def launch_setup(context, *args, **kwargs):
                     "height": 480,
                     "fps": 30,
                     "frame_id": "camera_link",
+                    "rotate_180": camera_rotate_180,
                 }
             ],
             output="screen",
@@ -48,6 +57,7 @@ def launch_setup(context, *args, **kwargs):
             parameters=[
                 {
                     "config_file": config_file,
+                    "vehicle_file": vehicle_file,
                     "drive_enabled": drive_enabled,
                     "image_timeout_s": 0.3,
                 }
@@ -70,6 +80,23 @@ def launch_setup(context, *args, **kwargs):
             prefix=python_prefix,
         ),
     ]
+    if serial_device:
+        nodes.append(
+            Node(
+                package="vision_avoid",
+                executable="vision_stm32_bridge",
+                parameters=[
+                    {
+                        "serial_device": serial_device,
+                        "drive_enabled": drive_enabled,
+                        "segment_m": float(segment_m),
+                    }
+                ],
+                output="screen",
+                prefix=python_prefix,
+            )
+        )
+    return nodes
 
 
 def generate_launch_description():
@@ -85,6 +112,10 @@ def generate_launch_description():
                     "usb-Sonix_Technology_Co.__Ltd._HD_webcam_SN0001-video-index0"
                 ),
             ),
+            DeclareLaunchArgument("vehicle_file", default_value=""),
+            DeclareLaunchArgument("serial_device", default_value=""),
+            DeclareLaunchArgument("segment_m", default_value="0.02"),
+            DeclareLaunchArgument("camera_rotate_180", default_value="false"),
             DeclareLaunchArgument("web_host", default_value="127.0.0.1"),
             DeclareLaunchArgument("web_port", default_value="8080"),
             DeclareLaunchArgument("drive_enabled", default_value="false"),

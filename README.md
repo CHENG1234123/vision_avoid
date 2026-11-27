@@ -115,6 +115,48 @@ ros2 launch vision_avoid live.launch.py profile:=indoor
 ros2 launch vision_avoid live.launch.py video_device:=/dev/video2
 ```
 
+
+## STM32 串口控制
+
+本项目只在上位机侧发送下位机工程已有的 USART1 指令，不修改、不重烧 STM32 固件。串口参数为 115200 8N1；桥接读取 16 路 FireWater，运动只发送短距离 `$D`：
+
+```text
+$D<距离mm>,<速度转/秒>,<前轮角>
+```
+
+例如 `$D20.0,0.155,6.18` 表示沿前轮左转 6.18 度的圆弧前进 20 mm。默认每段 20 mm，桥接等 FireWater 显示底盘回到空闲或完成后再发下一段。`$S` 是原地掉头，自动避障桥不会发送它。
+
+先做只读观察，不需要实车配置，也不会进入运动：
+
+```bash
+ros2 launch vision_avoid live.launch.py \
+  profile:=indoor \
+  serial_device:=/dev/serial/by-id/实际串口 \
+  drive_enabled:=false
+ros2 topic echo /vehicle/status
+```
+
+带动力前，复制 `config/vehicle.example.yaml` 到本机并填写实测参数。当前已确认车身左右各 0.20 m（总宽 0.40 m）、镜头横向居中、高 0.35 m、俯角 0°；前悬按前轮同径暂填 61.5 mm，镜头中心距后轴 0.335 m，标定内参仍需现场生成。0° 水平镜头确认 `zero_tilt_ack: true` 后，系统按镜头高度、俯角和标定图像底边计算车头前的近地盲区，只在正前方这段跳过未知地面，已检测到的障碍仍生效。旧配置的 `precleared_forward_m` 只可缩短这段距离。`drive_enabled:=true` 必须同时提供 `vehicle_file` 和 `serial_device`：
+
+```bash
+ros2 launch vision_avoid live.launch.py \
+  profile:=indoor \
+  vehicle_file:="$HOME/vehicle.yaml" \
+  serial_device:=/dev/serial/by-id/实际串口 \
+  drive_enabled:=true
+```
+
+启动后桥接只读取反馈，不会自动运动。现场确认架空、电机动力和停车方式后，显式使能：
+
+```bash
+ros2 service call /vehicle/arm std_srvs/srv/SetBool "{data: true}"
+ros2 service call /vehicle/arm std_srvs/srv/SetBool "{data: false}"
+```
+
+**固有限制：** 现有下位机没有可抢占的串口停车指令，也没有逐条应答。门禁关闭或收到取消时，桥接会把 `$D0,0.050,0.00` 排在下一条执行；车辆必须先完成当前 20 mm 短段及该段减速。这个延迟无法由上位机消除。
+
+完整步骤和反馈通道见 [STM32 串口控制](docs/STM32串口控制.md)。
+
 查看调试画面：
 
 ```bash
@@ -173,6 +215,8 @@ Provider 切换控件；明确需要手机切换本地与云端时，再增加
 | `/vision/scan_gate_open` | `std_msgs/msg/Bool` |
 | `/vision/provider_status` | `diagnostic_msgs/msg/DiagnosticStatus` |
 | `/vision/set_api_provider` | `std_srvs/srv/SetBool` |
+| `/vehicle/arm` | `std_srvs/srv/SetBool`（请求/撤销上位机发令） |
+| `/vehicle/status` | `std_msgs/msg/String`（串口反馈 JSON） |
 
 手动重扫：
 
@@ -315,7 +359,8 @@ colcon test --packages-select vision_avoid
 ## 已知限制
 
 - 不使用 LiDAR、深度相机、SLAM 或全局地图。
-- 不包含真实车辆串口、电机、急停或遥控接管。
+- 实车控制只通过下位机既有串口协议；本项目不修改 STM32 固件，也不提供硬件急停或遥控接管。
+- 下位机 $D 动作不可被串口命令抢占，停车必须等当前短段结束。
 - 单目深度对玻璃、强反光、无纹理表面和逆光可能不准。
 - COCO 之外的物体仍会被深度投影为几何障碍，但未必有正确语义标签。
 - Qwen 4B 可能漏检或幻觉；门禁始终同时要求本地深度通路。

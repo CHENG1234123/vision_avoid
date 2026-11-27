@@ -240,7 +240,7 @@ HTML_PAGE = """<!doctype html>
       <div class="metric"><div class="metric-label">角速度</div><div>
         <span id="angularSpeed" class="metric-value">--</span><span class="metric-unit">rad/s</span>
       </div></div>
-      <div class="metric"><div class="metric-label">前向净空</div><div>
+      <div class="metric"><div class="metric-label" title="从车头量到直行通道的首个障碍或待观测格；标定盲区内仅跳过未知地面。">前向检查距离</div><div>
         <span id="clearance" class="metric-value">--</span><span class="metric-unit">m</span>
       </div></div>
       <div class="metric"><div class="metric-label">推理耗时</div><div>

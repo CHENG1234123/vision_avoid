@@ -28,6 +28,7 @@ setup(
         "console_scripts": [
             "vision_camera_node = vision_avoid.camera_node:main",
             "vision_debug_web = vision_avoid.debug_web:main",
+            "vision_stm32_bridge = vision_avoid.stm32_bridge:main",
             "vision_avoid_node = vision_avoid.node:main",
             "vision-download-models = vision_avoid.download_models:main",
             "vision-calibrate-camera = vision_avoid.calibrate_camera:main",

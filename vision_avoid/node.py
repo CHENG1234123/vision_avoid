@@ -16,7 +16,7 @@ from geometry_msgs.msg import Twist
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool, Trigger
@@ -40,6 +40,7 @@ from vision_avoid.perception import (
 from vision_avoid.providers import SceneScanError, SceneScanner, create_scanner
 from vision_avoid.scene import SceneScan
 from vision_avoid.scene_change import SceneChangeDetector, SceneEvent
+from vision_avoid.vehicle import measured
 
 
 class RunState(str, Enum):
@@ -58,12 +59,23 @@ class AvoidanceNode(Node):
         self.declare_parameter("drive_enabled", False)
         self.declare_parameter("min_gpu_free_mb", 512)
         self.declare_parameter("image_timeout_s", 0.3)
+        self.declare_parameter("vehicle_file", "")
 
         config_file = str(self.get_parameter("config_file").value)
         if not config_file:
             raise ValueError("config_file parameter is required")
         self.config = load_config(config_file)
         self.drive_enabled = bool(self.get_parameter("drive_enabled").value)
+        vehicle_file = str(self.get_parameter("vehicle_file").value)
+        self._rectify = None
+        if vehicle_file:
+            import numpy as np
+            self.config = measured(vehicle_file, self.config, powered=self.drive_enabled)
+            cam = self.config.camera
+            matrix = np.array([[cam.fx, 0, cam.cx], [0, cam.fy, cam.cy], [0, 0, 1.]])
+            self._rectify = cv2.initUndistortRectifyMap(
+                matrix, np.array(self.config.robot.vehicle.distortion), None, matrix,
+                (cam.width, cam.height), cv2.CV_16SC2)
         self.min_gpu_free_mb = int(self.get_parameter("min_gpu_free_mb").value)
         self.image_timeout_s = float(self.get_parameter("image_timeout_s").value)
 
@@ -141,7 +153,7 @@ class AvoidanceNode(Node):
             Image,
             "/camera/image_raw",
             self._image_callback,
-            qos_profile_sensor_data,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
             callback_group=image_group,
         )
         self._control_timer = self.create_timer(
@@ -261,6 +273,18 @@ class AvoidanceNode(Node):
             self._fault(f"image decode failed: {type(exc).__name__}")
             return
 
+        image_ns = message.header.stamp.sec * 10**9 + message.header.stamp.nanosec
+        if self._rectify is not None:
+            delay = (self.get_clock().now().nanoseconds - image_ns) / 1e9
+            if frame.shape[:2] != (480, 640):
+                self._fault("calibration requires 640x480 images")
+                self._publish_stop()
+                return
+            if not 0 <= delay <= self.image_timeout_s:
+                # Drop a queued stale frame; the control tick still stops the
+                # vehicle if fresh images stop arriving altogether.
+                return
+            frame = cv2.remap(frame, *self._rectify, cv2.INTER_LINEAR)
         now = time.monotonic()
         with self._lock:
             self._last_image_at = now
@@ -314,7 +338,11 @@ class AvoidanceNode(Node):
 
         with self._lock:
             recoverable = self._state == RunState.FAULT and self._error.startswith(
-                ("camera quality rejected", "camera frame timeout")
+                (
+                    "camera quality rejected",
+                    "camera frame timeout",
+                    "stale image or calibration resolution mismatch",
+                )
             )
             if recoverable:
                 self._error = ""

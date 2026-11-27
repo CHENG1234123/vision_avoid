@@ -254,10 +254,11 @@ def render_depth_view(depth_m: np.ndarray) -> np.ndarray:
 
 def render_bev_view(occupancy: OccupancyGrid) -> np.ndarray:
     view = np.full((270, 480, 3), (246, 248, 250), dtype=np.uint8)
-    cells = cv2.rotate(occupancy.cells * 255, cv2.ROTATE_90_CLOCKWISE)
+    # Forward is up, positive body Y (left) is left.
+    cells = occupancy.cells.T[::-1, ::-1]
     cells = cv2.resize(cells, (450, 240), interpolation=cv2.INTER_NEAREST)
-    occupied = cells > 0
-    view[15:255, 15:465][occupied] = (45, 45, 220)
+    view[15:255, 15:465][cells == 2] = (155, 155, 155)
+    view[15:255, 15:465][cells == 1] = (45, 45, 220)
     for distance_m in (1, 2, 3):
         y = 255 - int(distance_m * 60)
         cv2.line(view, (15, y), (465, y), (205, 210, 218), 1)
@@ -478,7 +479,7 @@ def render_debug(
         depth_m, sidebar_w, 135
     )
 
-    occ_display = cv2.rotate(occupancy.cells * 255, cv2.ROTATE_90_CLOCKWISE)
+    occ_display = np.choose(occupancy.cells.T[::-1, ::-1], [0, 255, 96]).astype(np.uint8)
     occ_display = cv2.resize(
         occ_display,
         (sidebar_w, 135),

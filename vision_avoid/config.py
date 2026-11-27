@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+from vision_avoid.vehicle import Vehicle
+
 
 @dataclass(frozen=True)
 class CameraConfig:
@@ -18,6 +20,8 @@ class CameraConfig:
     cy: float
     mount_height_m: float
     pitch_deg: float
+    forward_m: float = 0.0
+    left_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -30,6 +34,7 @@ class RobotConfig:
     stop_distance_m: float
     ground_tolerance_m: float
     obstacle_max_height_m: float
+    vehicle: Vehicle | None = None
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,16 @@
+# Copy to a local path and fill every null with a physical measurement.
+# Origin: midpoint of the rear axle. Units: metres.
+width_m: 0.40
+safety_margin_m: 0.05                # body envelope: 0.20 m each side; do not use track as width
+front_overhang_m: 0.0615     # assumed front tyre same radius as rear; correct if different
+rear_overhang_m: 0.0615      # rear tyre radius: 123 mm / 2
+camera_forward_m: 0.335      # camera centre ahead of the rear axle
+camera_left_m: 0.0           # camera is centred on the vehicle top
+mount_height_m: 0.35
+pitch_deg: 0.0               # down positive; confirmed horizontal
+zero_tilt_ack: true          # level mount confirmed: derive the blind strip from calibration
+intrinsics_file: null        # vision-calibrate-camera result at 640x480
+braking_distance_m: null     # measured stop travel, including reaction delay
+braking_reference_mps: 0.10  # speed used to measure braking_distance_m
+estop_verified: false        # independent motor-power stop physically tested
+# Body-centre turning radius measured as ~0.85 m; not a rear-axle value.

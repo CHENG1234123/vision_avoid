@@ -58,8 +58,8 @@ def depth_to_body_points(
 
     pitch = math.radians(camera.pitch_deg)
     c, s = math.cos(pitch), math.sin(pitch)
-    x_body = -y_cam * s + z_cam * c
-    y_body = -x_cam
+    x_body = -y_cam * s + z_cam * c + camera.forward_m
+    y_body = -x_cam + camera.left_m
     z_body = -y_cam * c - z_cam * s + camera.mount_height_m
 
     valid = (
@@ -80,6 +80,10 @@ def build_occupancy(
     nx = int(math.ceil(planner.grid_length_m / planner.resolution_m))
     ny = int(math.ceil(planner.grid_width_m / planner.resolution_m))
     cells = np.zeros((ny, nx), dtype=np.uint8)
+    if robot.vehicle is not None:
+        from vision_avoid.vehicle_path import measured_grid
+        cells = measured_grid(body_points, robot, planner, (ny, nx))
+        return OccupancyGrid(cells, planner.resolution_m, -planner.grid_width_m / 2)
     if len(body_points) == 0:
         return OccupancyGrid(cells, planner.resolution_m, -planner.grid_width_m / 2)
 
@@ -159,12 +163,26 @@ def path_is_clear(
 
 
 def front_clearance(grid: OccupancyGrid, robot: RobotConfig) -> float:
+    if robot.vehicle is not None:
+        car = robot.vehicle
+        res = grid.resolution_m
+        start = int(car.nose / res)
+        y = grid.origin_y_m + np.arange(grid.shape[0]) * res
+        half = robot.half_width_m + robot.safety_margin_m
+        rows = (y < half - 1e-9) & (y + res > -half + 1e-9)
+        band = grid.cells[rows, start:]
+        blind = car.blind_columns(np.arange(start, grid.shape[1]), res)
+        stops = np.flatnonzero(((band == 1) | ((band == 2) & ~blind)).any(axis=0))
+        end_col = start + stops[0] if stops.size else grid.shape[1]
+        return max(0.0, end_col * res - car.nose)
     y0 = int(math.floor(((-robot.half_width_m) - grid.origin_y_m) / grid.resolution_m))
     y1 = int(math.ceil(((robot.half_width_m) - grid.origin_y_m) / grid.resolution_m)) + 1
-    occupied_x = np.flatnonzero(grid.cells[max(0, y0) : y1].any(axis=0))
+    nose = 0.0
+    start = int(nose / grid.resolution_m)
+    occupied_x = np.flatnonzero(grid.cells[max(0, y0) : y1, start:].any(axis=0))
     if occupied_x.size == 0:
-        return grid.shape[1] * grid.resolution_m
-    return float(occupied_x[0] * grid.resolution_m)
+        return max(0.0, grid.shape[1] * grid.resolution_m - nose)
+    return max(0.0, (start + occupied_x[0]) * grid.resolution_m - nose)
 
 
 def side_clearance(grid: OccupancyGrid, robot: RobotConfig, side: str) -> float:
@@ -272,6 +290,9 @@ class CommandSelector:
         now_s: float,
         speed_cap: float,
     ) -> MotionCommand:
+        if robot.vehicle is not None:
+            from vision_avoid.vehicle_path import choose
+            return choose(grid, robot, self._planner, preferred_direction, speed_cap)
         if front_clearance(grid, robot) <= robot.stop_distance_m:
             return MotionCommand()
         rates = list(self._planner.yaw_rates)

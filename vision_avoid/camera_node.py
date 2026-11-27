@@ -36,12 +36,14 @@ class CameraNode(Node):
         self.declare_parameter("height", 480)
         self.declare_parameter("fps", 30)
         self.declare_parameter("frame_id", "camera_link")
+        self.declare_parameter("rotate_180", False)
 
         self._path = str(self.get_parameter("video_device").value)
         self._width = int(self.get_parameter("width").value)
         self._height = int(self.get_parameter("height").value)
         self._fps = int(self.get_parameter("fps").value)
         self._frame_id = str(self.get_parameter("frame_id").value)
+        self._rotate_180 = bool(self.get_parameter("rotate_180").value)
         self._bridge = CvBridge()
         self._capture: cv2.VideoCapture | None = None
         self._last_reopen = 0.0
@@ -77,6 +79,8 @@ class CameraNode(Node):
             self._release()
             self._last_reopen = time.monotonic()
             return
+        if self._rotate_180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
         message = self._bridge.cv2_to_imgmsg(frame, encoding="bgr8")
         message.header.stamp = self.get_clock().now().to_msg()
         message.header.frame_id = self._frame_id
